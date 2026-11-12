@@ -1,0 +1,30 @@
+[Unit]
+Description=Exa crawler observability API and dashboard
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/exa-crawler
+
+[Service]
+Type=simple
+User=exa-crawler
+Group=exa-crawler
+WorkingDirectory=/opt/exa-observatory/v0.2.0
+Environment=NODE_ENV=production
+Environment=CRAWLER_DATA_DIR=/var/lib/exa-crawler/data
+Environment=HOST=127.0.0.1
+Environment=PORT=4318
+ExecStart=/usr/local/bin/node --import tsx src/api.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+MemoryMax=384M
+CPUQuota=60%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

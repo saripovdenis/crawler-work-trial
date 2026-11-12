@@ -93,3 +93,38 @@ Files: `sites.ts` configuration; `http.ts` budget/transport/robots; `parse.ts` e
 Set `CRAWLER_DATA_DIR` in the process environment to change storage; `.env` is not auto-loaded.
 Do not run multiple instances with different data directories against the same sites:
 their independent request budgets would add together.
+
+## v0.2: public observability
+
+Dashboard: https://exa-crawler.34.68.179.149.sslip.io
+
+The dashboard and read-only API run in a separate `exa-observatory` systemd service.
+The existing `exa-crawler` service and its database are unchanged. Caddy serves HTTPS
+and proxies to the API on loopback port 4318. Google Cloud ingress exposes only
+80/443 for this dashboard; SSH remains restricted to IAP.
+
+- Overview: heartbeat, fresh articles, publisher-derived delay, request volume, site health.
+- Request log: cursor pagination, site/error filters, HTTP outcomes and duration.
+- Inspector: candidate links reconstructed from compressed discovery responses.
+- Articles: title search, site/fresh filters, publication evidence and source links.
+- Schedule: earliest source eligibility, successful polls, errors, URL discovery counts.
+
+UI updates every 10 seconds; overview queries are cached for 10 seconds. All times
+render in the viewer's local timezone. Headline metrics and the activity chart cover
+all sites; the website selector filters tables and lists. Site health reflects the
+last result for each discovery source, not a guarantee of complete article coverage.
+The request inspector uses the current parser, shows at most 200 candidate links,
+and does not claim they were all newly discovered in that poll. API responses omit
+raw headers and full article bodies. Filters never make upstream requests.
+
+`deploy/` contains the service, HTTPS configuration, and VM installation script.
+The release is installed at `/opt/exa-observatory/v0.2.0`; the existing live database
+is read at `/var/lib/exa-crawler/data/crawler.sqlite`. The public hostname uses the
+VM's reserved regional IP via sslip.io; a custom domain can replace it in Caddyfile.
+
+Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
+`/api/requests/123`, `/api/articles?fresh=true&q=news`, `/api/sources`.
+There are no write endpoints. API traffic is capped globally at 300 requests/10s,
+with at most two simultaneous saved-response inspections.
+
+Validation: `npm run check`, `npm test`, `npm run dashboard:build`.

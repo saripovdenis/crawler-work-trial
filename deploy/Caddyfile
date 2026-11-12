@@ -1,0 +1,4 @@
+exa-crawler.34.68.179.149.sslip.io {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:4318
+}
