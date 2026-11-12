@@ -110,3 +110,10 @@ and description already supply every output. Skipping it produced identical
 fields on six archived controls (about 3–9 ms instead of 26–133 ms locally).
 Initial-sample eligibility now stops counting at eight, preserving the same
 selection decision while avoiding scans of thousands of completed candidates.
+
+After CPU fixes, the residual dispatch failures were in the Python startup path:
+measured imports took 1,008–1,237 ms on the VM, on top of queue/receipt latency.
+The dispatch allowance is now five seconds and uncertain-request horizon 35s.
+Per-site limits, 20s HTTP timeout and 60s leases are unchanged. Tests prove spacing
+for a start near five seconds, rejection beyond it, and charged crash/restart
+reservations. All 81 tests pass.

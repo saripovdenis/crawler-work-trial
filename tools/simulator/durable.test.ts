@@ -394,3 +394,19 @@ test('initial sample remains capped at eight after additional completed history 
     assert.equal(f.db.prepare("SELECT state FROM candidates WHERE url='https://www.bbc.com/unknown-second'").get()!.state,'pending');
   }finally{f.close();}
 });
+
+test('five-second dispatch allowance retains completion-based budget spacing and rejects later sends',()=>{
+ const f=fixture();try {
+  const reserved=f.now(),task=f.scheduler.claim('w','five-seconds').task!;
+  assert.equal(Date.parse(task.start_by)-reserved,5000);
+  f.advance(4999);f.scheduler.complete(task.attempt_id,response(f,task,304,''));f.scheduler.process();
+  f.db.exec('UPDATE crawl_tasks SET next_crawl_at=0;UPDATE sources SET next_poll=0');
+  f.advance(12019);assert.equal(f.scheduler.claim('w','too-early').task,null);
+  f.advance(1);assert.ok(f.scheduler.claim('w','spaced').task);
+ }finally{f.close();}
+ const late=fixture();try {
+  const task=late.scheduler.claim('w','late').task!;late.advance(5001);
+  assert.throws(()=>late.scheduler.complete(task.attempt_id,response(late,task,304,'')),/Dispatch after deadline/);
+  assert.equal(late.db.prepare('SELECT count(*) n FROM requests').get()!.n,1);
+ }finally{late.close();}
+});

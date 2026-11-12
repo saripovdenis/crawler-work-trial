@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { nextAllowed } from '../../../../packages/core/src/policy.js';
 
-// Transport deadlines are <=25s. An unfinished reservation remains charged after
-// a crash; allow 30s for a possible in-flight request before starting the spacing.
-const IN_FLIGHT_MS = 30_000;
+// Five seconds to dispatch + 25s transport cap + five seconds of margin.
+// Unfinished reservations stay charged across crashes before spacing begins.
+const IN_FLIGHT_MS = 35_000;
 
 // Read-only eligibility check; reserveSlot repeats it inside the write transaction.
 export function slotDue(db: DatabaseSync, domain: string, rpm: number, crawlDelay: number, now: number): number {

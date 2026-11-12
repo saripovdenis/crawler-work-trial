@@ -1,6 +1,6 @@
 export const REQUEST_TIMEOUT_MS = 20_000;
 export const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
-export const DISPATCH_MS = 2_000;
+export const DISPATCH_MS = 5_000;
 export const LEASE_MS = 60_000;
 export type Assignment = {
   task_id: string; attempt_id: string; lease_token: string; domain: string; url: string;
