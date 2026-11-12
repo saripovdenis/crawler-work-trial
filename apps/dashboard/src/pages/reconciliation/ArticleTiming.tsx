@@ -61,6 +61,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
                           {g.site} · Fetched:{" "}
                           {time(g.crawler_fetch_finished_at)} · Our poll first saw it:{" "}
                           {time(g.observed_at)}
+                          {g.unparsed ? " · Fetched, not parsed" : g.incomplete ? " · Incomplete parse" : ""}
                         </small>
                       </div>
                       <Badge variant="outline">

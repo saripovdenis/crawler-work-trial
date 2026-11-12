@@ -259,7 +259,7 @@ export default function FreshnessPage() {
                   <td>{time(timing?.publishedAt)}<small>{(timing?.providers || []).map((id: string) => names[id] || id).join(" + ")}</small></td>
                   <td>{time(timing?.fetchFinishedAt)}{g.crawler_request_id && <small><a href={`/api/requests/${g.crawler_request_id}`} target="_blank" rel="noreferrer">Fetch #{g.crawler_request_id}</a></small>}</td>
                   <td><strong>{duration(timing?.delayMs)}</strong>{timing?.delayMs < 0 && <small>Check timestamps</small>}</td>
-                  <td>{!g.match ? "No matched fetch" : timing?.fetchFinishedAt == null ? "Fetch time unknown" : g.incomplete ? "Fetched · incomplete parse" : "Fetched"}{g.match === "title" && <small>Probable title match</small>}</td>
+                  <td>{!g.match ? "No matched fetch" : timing?.fetchFinishedAt == null ? "Fetch time unknown" : g.unparsed ? "Fetched · not parsed" : g.incomplete ? "Fetched · incomplete parse" : "Fetched"}{g.match === "title" && <small>Probable title match</small>}</td>
                 </tr>;
               })}</tbody>
             </table></div>

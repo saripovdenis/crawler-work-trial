@@ -21,9 +21,21 @@ Google-only + Exa-only + shared equals the combined sample. Each shared group
 retains both provider records and timestamps. Different indexing, ranking, locale
 and result caps explain different samples; neither provider is ground truth.
 
-Only rows in the crawler's `articles` table count as fetched. Pending candidates
-and failed requests do not count. Incomplete parsed articles do count as fetched;
-`summary.incomplete` reports them separately. Parsing quality remains on Charts.
+Fetched coverage uses archived HTTP 200 article requests with no fetch error,
+whether parsing has finished, is pending, or has failed. Redirects, failed or
+unfinished downloads, discovery requests and external audit requests do not count.
+Parsed `articles` rows enrich these downloads with canonical URLs, titles and
+quality; they are not required for a URL match. `summary.unparsed` counts matched
+downloads without a parsed record; `summary.incomplete` counts incomplete parsed
+records. Neither counts toward “matched & complete.” Parsing quality remains on Charts.
+Google wrapper URLs still need a probable title/date match (or grouping with an
+identified provider URL), so a Google-only item can remain unmatched until parsing.
+
+Both coverage cards and each domain row use the same external-sample denominator:
+`fetchedMatched / total` and `parsedMatched / total`, with percentages exposed as
+`fetchedPercentage` and `parsedPercentage`. Parsed counts include incomplete
+records; `completeMatched` / `completePercentage` show the complete subset.
+The existing `matched` and `percentage` fields remain aliases for fetched coverage.
 
 Matching uses a normalized URL first (tracking parameters, fragments, `www`,
 scheme and trailing slash removed). Otherwise an exact normalized title (with recognized terminal publisher branding removed), same
@@ -160,7 +172,7 @@ truncation, errors and indexing delays make absent results inconclusive. The
 Matched groups expose:
 - `crawler_fetch_finished_at`: `attempt_assignments.completion.finished_at` from
   the worker, linked through its successful article request and original task URL.
-  This excludes redirects, failed requests, audits and pending parses. Legacy
+  This excludes redirects, failed requests and audits, but includes pending parses. Legacy
   requests use `requests.finished`, labeled `legacy_request_finished`; missing
   evidence stays null. The durable scheduler's `requests.finished` is receipt
   arrival time and is deliberately not used as network finish.

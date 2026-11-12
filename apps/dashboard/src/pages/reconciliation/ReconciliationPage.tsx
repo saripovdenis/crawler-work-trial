@@ -237,15 +237,15 @@ export default function ReconciliationPage() {
           )}
           <div className="reconcile-stats">
             <section className="coverage-hero">
-              <span>Matched coverage · provider sample</span>
-              <strong>{percent(summary?.percentage)}</strong>
+              <span>Fetched coverage · provider sample</span>
+              <strong>{percent(summary?.fetchedPercentage)}</strong>
               <p>
                 {summary
-                  ? `${number(summary.matched)} of ${number(summary.total)} unique external articles in our database`
+                  ? `${number(summary.fetchedMatched)} / ${number(summary.total)} external articles successfully downloaded`
                   : "Collecting the first sample"}
               </p>
               <div className="coverage-track">
-                <i style={{ width: (summary?.percentage || 0) + "%" }} />
+                <i style={{ width: (summary?.fetchedPercentage || 0) + "%" }} />
               </div>
               <small>
                 {summary
@@ -254,10 +254,10 @@ export default function ReconciliationPage() {
               </small>
             </section>
             <section>
-              <span>Matched &amp; complete</span>
-              <strong>{percent(summary?.completePercentage)}</strong>
-              <p>{summary ? `${number(summary.completeMatched)} of ${number(summary.total)} external articles fetched with a complete parse.` : "Waiting for data"}</p>
-              <small>Uses the same completeness definition as Charts.</small>
+              <span>Parsed coverage · provider sample</span>
+              <strong>{percent(summary?.parsedPercentage)}</strong>
+              <p>{summary ? `${number(summary.parsedMatched)} / ${number(summary.total)} external articles saved as parsed records` : "Waiting for data"}</p>
+              <small>{summary ? `${number(summary.completeMatched)} complete (${percent(summary.completePercentage)}) · ${number(summary.incomplete)} incomplete · ${number(summary.unparsed)} fetched without a parsed record` : "Includes complete and incomplete parses."}</small>
             </section>
             <section>
               <span>Not matched</span>
@@ -274,7 +274,9 @@ export default function ReconciliationPage() {
           </div>
           <p className="reconcile-definition">
             This measures the provider sample, not the whole website. Window
-            uses the publication date reported by each provider, in UTC. Exact URL
+            uses the publication date reported by each provider, in UTC. Both percentages
+            use the same external sample: fetched means an archived successful article download;
+            parsed means a saved article record, including incomplete parses. Exact URL
             matches are strongest; title + domain + publication time matches are probable.{" "}
             {data?.unknownPublication > 0 && `${number(data?.unknownPublication || 0)} sightings with unknown publication dates are excluded. `}
             {data && data.excludedNonArticles > 0 && `${number(data.excludedNonArticles)} verified topic/profile pages are excluded. `}
@@ -356,8 +358,8 @@ export default function ReconciliationPage() {
                 <thead>
                   <tr>
                     <th>Domain</th>
-                    <th>Coverage</th>
-                    <th>Matched / sample</th>
+                    <th>Fetched / sample</th>
+                    <th>Parsed / sample</th>
                     <th>Complete / sample</th>
                     {Object.values(names).map((n) => (
                       <th key={n}>{n}</th>
@@ -378,15 +380,17 @@ export default function ReconciliationPage() {
                         </button>
                       </td>
                       <td>
-                        {percent(r.percentage)}
+                        {percent(r.fetchedPercentage)}
+                        <div>{r.total ? `${r.fetchedMatched} / ${r.total}` : "No sample"}</div>
                         <div className="mini-track">
-                          <i style={{ width: (r.percentage || 0) + "%" }} />
+                          <i style={{ width: (r.fetchedPercentage || 0) + "%" }} />
                         </div>
                       </td>
                       <td>
-                        {r.total ? `${r.matched} / ${r.total}` : "No sample"}
+                        {percent(r.parsedPercentage)}
+                        <div>{r.total ? `${r.parsedMatched} / ${r.total}` : "No sample"}</div>
                       </td>
-                      <td>{r.total ? `${r.completeMatched} / ${r.total}` : "No sample"}</td>
+                      <td>{percent(r.completePercentage)}<div>{r.total ? `${r.completeMatched} / ${r.total}` : "No sample"}</div></td>
                       {Object.keys(names).map((id) => (
                         <td key={id}>{r.counts[id] || "—"}</td>
                       ))}
