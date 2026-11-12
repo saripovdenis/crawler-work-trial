@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
+  BarChart3,
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
@@ -261,6 +262,7 @@ export default function App() {
               )}
             </button>
           ))}
+          <a className="nav-item" href="/charts"><BarChart3 size={17}/>Charts</a>
         </nav>
         <div className="sidebar-note">
           <Radio size={17} />

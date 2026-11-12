@@ -2,6 +2,9 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { Observatory } from "./observability.js";
+import { Charts } from "./charts.js";
+
+const charts = new Charts(resolve(process.env.CRAWLER_DATA_DIR || "data"));
 
 const observation = new Observatory(
   resolve(process.env.CRAWLER_DATA_DIR || "data"),
@@ -43,7 +46,8 @@ const server = createServer(async (req, res) => {
         return;
       }
       let result: unknown;
-      if (url.pathname === "/api/overview") result = observation.overview();
+      if (url.pathname === "/api/charts/parsing-quality") result = charts.parsingQuality(url.searchParams);
+      else if (url.pathname === "/api/overview") result = observation.overview();
       else if (url.pathname === "/api/requests")
         result = observation.requests(url.searchParams);
       else if (url.pathname === "/api/articles")
@@ -128,6 +132,7 @@ for (const event of ["SIGTERM", "SIGINT"])
   process.on(event, () =>
     server.close(() => {
       observation.db.close();
+      charts.db.close();
       process.exit(0);
     }),
   );
