@@ -38,7 +38,7 @@ export function checkBoundaries(root = ownRoot) {
         if (!skip) walk(path);
         continue;
       }
-      if (!/\.(?:ts|js|mjs|cjs|py)$/.test(path) || /(?:\.test\.ts|check-cffi\.py)$/.test(path)) continue;
+      if (!/\.(?:ts|js|mjs|cjs|py)$/.test(path)) continue;
       errors.push(...violationsFor(path, readFileSync(resolve(root, path), 'utf8')));
     }
   }

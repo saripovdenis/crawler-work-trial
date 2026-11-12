@@ -102,24 +102,17 @@ allows writes to snapshots/receipts. Scheduler networking is restricted to loopb
 
 ```sh
 npm run check
-npm test
 npm run check:boundaries
-npm run check:shadow -- /path/to/snapshot.sqlite
-npm run check:durable -- /path/to/snapshot.sqlite
-.venv/bin/python services/fetcher-impersonate/check-cffi.py
 ```
 
-Tests contact loopback simulators only. Snapshot checks create disposable backups;
-they never write the input. The two-process rehearsal substitutes saved news fixtures
-and blocks non-loopback sockets. Unit/contract tests cover concurrent claims, retries,
-expiry, robots, redirects, 304/429, oversized bodies, timeout, lost ACKs, unknown dispatch,
-parser failure, worker dependency boundaries and unchanged dashboard behavior.
+Automated suites and their harnesses were removed by project preference. Use static
+checks and manual inspection; never run the crawler against live sites for validation.
 
 ## Deployment and rollback
 
 Upload a committed release to `/opt/exa-crawler/durable-COMMIT` and run
 `sudo bash deploy/deploy-durable.sh /opt/exa-crawler/durable-COMMIT`.
-Preflight runs tests and both copied-database checks while the old loop continues.
+Preflight installs dependencies, checks types and checks source boundaries while the old loop continues.
 Only then: stop the executor (if present), stop the old loop, save `before-cutover.sqlite`,
 install units, start the scheduler, wait for private health, start the worker.
 Dashboard and Caddy are not restarted. No old/new loop overlap is allowed.

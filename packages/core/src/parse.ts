@@ -4,7 +4,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { dateIso, normalizeUrl, domainFor } from './policy.js';
 import { sourcePriority } from '../../../config/discovery.js';
-import { publicationProfiles, arcContentHosts } from '../../../config/profiles.js';
+import { publicationProfiles, arcContentHosts, articleBodyProfiles } from '../../../config/profiles.js';
 import type { Article } from './types.js';
 
 export type Found = { url: string; published: string | null };
@@ -22,6 +22,16 @@ export function publisherPublication($: CheerioAPI, url: string): {value: string
   const [,year,month,day,hour,minute,second='00'] = parts;
   const value = dateIso(`${year}-${month!.padStart(2,'0')}-${day!.padStart(2,'0')}T${hour}:${minute}:${second}${profile.offset}`);
   return value ? {value, source: `site:${domain}:${profile.selector} (${profile.offset})`} : null;
+}
+
+function publisherArticleBody($: CheerioAPI, url: string): {text: string; source: string} | null {
+  const domain=domainFor(url), profile=domain && articleBodyProfiles[domain];
+  if(!profile || !profile.path.test(new URL(url).pathname)) return null;
+  const container=$(profile.selector).first();
+  if(!container.length) return null;
+  const content=container.clone();
+  content.find(profile.remove).remove();
+  return {text:content.text().replace(/\s+/g,' ').trim(),source:`site:${domain}:${profile.selector}`};
 }
 
 // Decode an embedded JSON value without executing publisher JavaScript.
@@ -183,6 +193,7 @@ export function parseArticle(body: string, url: string, discovered: number, hint
   });
   const publisherDate = publisherPublication($, url);
   const publisher = publisherStory($,url);
+  const articleBody = publisherArticleBody($,url);
   const dates = [
     ['fusion.globalContent.first_publish_date', publisher?.publishedAt],
     ['jsonld.datePublished', structured.datePublished],
@@ -191,20 +202,20 @@ export function parseArticle(body: string, url: string, discovered: number, hint
     ['pubdate', meta('pubdate')], [publisherDate?.source, publisherDate?.value], ['feed', hint],
   ];
   const date = dates.map(([source, value]) => [source, dateIso(value)]).find(([, value]) => value);
-  const publisherBody=publisher?.text ?? null;
+  const publisherBody=publisher?.text ?? articleBody?.text ?? null;
   const structuredBody=typeof structured.articleBody==='string' && structured.articleBody.trim()?structured.articleBody:null;
-  const knownTitle=structured.headline || meta('og:title');
+  const knownTitle=structured.headline || meta('og:title') || (articleBody ? $('title').text().trim() : undefined);
   const knownDescription=meta('description') || meta('og:description');
   // Readability contributes only text, a fallback title and a fallback excerpt.
   // Skip its DOM when all three outputs already come from explicit metadata.
   const completeStructured=!!(structuredBody && knownTitle && knownDescription);
   let readable;
-  if(publisherBody===null && !completeStructured) {
+  if((publisherBody===null && !completeStructured) || (articleBody && (!knownTitle || !knownDescription))) {
     const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
     try { readable = new Readability(dom.window.document).parse(); } finally { dom.window.close(); }
   }
   const text = (publisherBody ?? (structuredBody || readable?.textContent || $('article').text() || '')).replace(/\s+/g, ' ').trim();
-  const textSource=publisherBody!==null?'fusion.globalContent.content_elements':structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
+  const textSource=publisher?'fusion.globalContent.content_elements':articleBody?articleBody.source:structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
   return {
     canonicalUrl: normalizeUrl($('link[rel="canonical"]').attr('href') || url, url) || url,
     discoveredAt: new Date(discovered).toISOString(), publishedAt: date?.[1] || null,

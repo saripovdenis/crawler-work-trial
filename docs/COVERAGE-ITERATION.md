@@ -1,5 +1,8 @@
 # Coverage iteration, 12 November 2026
 
+Test results below predate removal of automated suites at the user's request.
+Current validation uses static checks, builds and manual inspection; see `AGENTS.md`.
+
 Previous working version was pushed as `96c7386` before starting this iteration.
 
 ## Baseline
@@ -117,3 +120,43 @@ The dispatch allowance is now five seconds and uncertain-request horizon 35s.
 Per-site limits, 20s HTTP timeout and 60s leases are unchanged. Tests prove spacing
 for a start near five seconds, rejection beyond it, and charged crash/restart
 reservations. All 81 tests pass.
+
+## Live validation after repair
+
+The completed archive pass changed 1,418 records: Eastmoney 411, CE 119,
+and Chosun 888. Comparing every committed before/after audit found no changes
+to original fetch/discovery timestamps and no invalid audit records.
+Current data: 536 / 6046 incomplete (8.87%). Remaining records stay flagged;
+missing or insufficient text/date evidence is never invented.
+
+Since the latest scheduler start, 311 assignments had no dispatch-deadline
+failures; 310 reported starts had p95 965 ms. This is a short live window, not
+a long-term guarantee. The original request ledger and limits are preserved.
+
+The current external sample remains about 28% matched (27% matched and complete).
+The 50% goal is not achieved. A 615-response parsing backlog remains after the
+backfill load; continued clean-window measurement and coverage work are required.
+
+## Parsing throughput follow-up
+
+The 09:42 UTC snapshot still held 657 unprocessed responses; several successful
+fetches waited about 15 minutes. The public last-hour sample remained about 24%
+matched, so the coverage goal is still open.
+
+- Cache scheduler SQL and skip unchanged candidate/task writes. Manual replay of
+  3,063 archived links took 29.9 ms instead of 104.4 ms with identical final rows.
+- Use an explicit positive-priority index range after initial sampling. The BBC
+  queue lookup fell from about 2.1 ms to 0.19 ms on the copy, selecting the same row.
+- Process control responses promptly; share parsing between discovery and articles.
+  Recent articles take four of five article turns; the fifth drains older work.
+- Limit a stuck parser worker to 30 seconds, preserving the archived retry.
+  A truncated RSS body with no complete items now schedules a fresh budgeted poll.
+- Extract verified Sina/Eastmoney article containers directly. Archived examples
+  preserved metadata and removed only Sina page boilerplate, with much less CPU.
+- Keep today's/yesterday's dated news maps eligible. Follow the Sina rolling
+  page's archived JavaScript redirect; slow its obsolete URL.
+
+No request-limit, ledger, schema, provider-matching or coverage-denominator changes.
+Validation uses type checks, the static boundary check and manual archive/database
+inspection under the project's no-tests preference. Only the crawler needs restart.
+Sina's AIroll HTML remains a JavaScript shell without a verified archived API contract.
