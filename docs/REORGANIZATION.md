@@ -1,5 +1,13 @@
 # Repository move audit
 
+> Deployment policy: only current `master` through
+> `sudo /usr/local/sbin/deploy-exa-master`. Release-path commands below describe
+> historical deployments and are retired. See [deployment documentation](../deploy/README.md).
+
+
+Test files and harnesses mentioned below were later removed at the user's request.
+See `AGENTS.md` for the current validation policy.
+
 Baseline: `2fc8e49`. Existing files were moved with `git mv` in separate shared-code,
 crawler, and dashboard commits. Tests/fixtures and deployment/docs follow separately.
 

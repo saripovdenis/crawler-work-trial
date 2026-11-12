@@ -1,34 +1,61 @@
-# Current deployment
+# Production releases: master only
 
-Use [the durable scheduler deployment](../docs/SCHEDULER.md#deployment-and-rollback).
-`redeploy.sh` delegates to `deploy-durable.sh`; use a `/opt/exa-crawler/durable-COMMIT` release.
-The dashboard remains on its current release.
+`master` is the sole deployable branch. Feature branches, including
+`codex/observability`, must be merged into it first. All four existing services
+run one release: scheduler/pipeline, fetch worker, dashboard/API and reconciler.
 
-## Historical layout-only deployment
+## Deploy
 
-# Existing VM deployment
+On the existing VM:
 
-Two Node services, unchanged users, environment names, limits, ports and public URL.
-No Docker/compose exists. Caddy stays untouched. The database stays at
-`/var/lib/exa-crawler/data/crawler.sqlite`.
+```sh
+sudo /usr/local/sbin/deploy-exa-master
+# Or require an exact current master commit (40 hexadecimal characters):
+sudo /usr/local/sbin/deploy-exa-master FULL_MASTER_SHA
+```
 
-1. Run type checks, tests, boundary check, dashboard build and offline snapshot smoke locally.
-2. Archive the committed release into `/opt/exa-crawler/layout-COMMIT` on the VM.
-   Include locally built `apps/dashboard/dist`; do not include local dependencies or data.
-3. Run `sudo bash deploy/redeploy.sh /opt/exa-crawler/layout-COMMIT` from that release.
-   It installs existing pinned dependencies, checks both runtimes offline, updates only
-   service code paths and performs one normal restart of each existing Node service.
-4. Check `/api/health`, `/api/overview`, `/charts`, service logs and preserved startup/budget history.
+The root-owned entrypoint is an installed copy of `deploy/deploy-master.sh`.
+It resolves `refs/heads/master` directly from GitHub, downloads that immutable
+commit, verifies its own script matches that commit, and builds the frontend
+from the same source. It never accepts local source archives or a branch name.
+An explicit SHA must equal current master, which is checked again before cutover.
 
-Templates default to `/opt/exa-crawler/layout-v1`; the script substitutes the release path.
-The Python executable remains release-local. WorkingDirectory remains the release root.
-`install-observatory.sh` is the original initial-provisioning helper; redeploy uses the script above.
+The command holds `/run/lock/exa-crawler-deploy.lock` throughout preparation and
+cutover. A second release fails rather than racing. Legacy deployments already
+running also prevent a cutover. Do not bypass these guards.
 
-Rollback: restore both units from `RELEASE/deploy/previous-units`, daemon-reload and restart
-the same services. Old code releases remain on disk. No database rollback or migration is needed.
+Preparation runs dependency installation, type checks, the static outbound/import
+boundary check, frontend build, and a Python transport import. It does not run
+automated tests or send validation requests to publishers. Both SQLite databases
+are backed up in the release directory. Existing service users, settings, ports,
+secrets, disk paths and public URLs are preserved.
 
-## External reconciliation
+The worker stops first; then the other three services stop. Their units switch
+together. Scheduler/API/reconciler start, then the worker starts after scheduler
+health passes. Durable charges and receipts are retained. Health checks cover
+scheduler, API, `/api/freshness`, the Freshness page, and consistent service paths.
+Failed cutovers restore the previous units; databases and budget history are never
+rolled back automatically.
 
-See [reconciler deployment and quotas](../docs/RECONCILIATION.md).
-`deploy-reconciler.sh` updates the scheduler/API release and installs the separate
-`exa-reconciler` service. It preserves the running fetch worker and existing data.
+Successful release identity is stored in:
+
+```text
+/var/lib/exa-crawler/deployments/current.json
+```
+
+Release directories are named `/opt/exa-crawler/master-SHA-UTC`. Source and
+frontend assets come from that same master commit. Old releases remain available
+for diagnosis and emergency rollback.
+
+## Install or update the entrypoint
+
+From a clean checkout of current master, copy `deploy/deploy-master.sh` to the VM
+and install it as root-owned `/usr/local/sbin/deploy-exa-master`, mode `0755`.
+The command refuses to deploy if this installed script differs from current master;
+update it when deployment logic changes. `deploy/redeploy.sh` delegates to it.
+The former durable/reconciler/install scripts intentionally fail with directions
+to the canonical command.
+
+These are operational safeguards, not an access-control boundary against a root
+administrator. Do not run historical archive scripts or edit live unit paths by
+hand. Any future CI must call this same command and deploy only `master`.

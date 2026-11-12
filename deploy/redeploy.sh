@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Current architecture: private scheduler + fetch worker. Dashboard is unchanged.
-exec bash "$(dirname "$0")/deploy-durable.sh" "$@"
+# The root-owned VM entrypoint fetches and builds only current origin/master.
+exec /usr/local/sbin/deploy-exa-master "$@"

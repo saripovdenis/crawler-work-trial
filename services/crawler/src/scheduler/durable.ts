@@ -20,7 +20,10 @@ export class ContractError extends Error { constructor(message: string, readonly
 export class Scheduler {
   private parser: ArchiveParser;
   private processingJob?: Promise<void>;
+  private articlesSinceDiscovery = 3;
+  private articleParses = 0;
   private closing=false;
+  private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) { migrateDurable(db); this.parser=new ArchiveParser(directory); this.refreshSourceQuality(); }
   // Once per minute, outside claim transactions. Count successfully parsed NEW
@@ -50,9 +53,14 @@ export class Scheduler {
     // yield budget to productive alternatives on the same site.
     return q && q.polls>=3 && q.newArticles===0 && alternative ? Math.max(base,300_000) : base;
   }
-  one(sql: string, ...params: any[]): Row | undefined { return this.db.prepare(sql).get(...params); }
-  all(sql: string, ...params: any[]): Row[] { return this.db.prepare(sql).all(...params); }
-  run(sql: string, ...params: any[]) { return this.db.prepare(sql).run(...params); }
+  private statement(sql: string) {
+    let statement=this.statements.get(sql);
+    if(!statement) {statement=this.db.prepare(sql);this.statements.set(sql,statement);}
+    return statement;
+  }
+  one(sql: string, ...params: any[]): Row | undefined { return this.statement(sql).get(...params); }
+  all(sql: string, ...params: any[]): Row[] { return this.statement(sql).all(...params); }
+  run(sql: string, ...params: any[]) { return this.statement(sql).run(...params); }
   transaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
@@ -86,14 +94,17 @@ export class Scheduler {
         // Avoid scanning large candidate queues before this domain can spend a slot.
         if (slotDue(this.db, site.domain, site.requestsPerMinute, 0, now) > now) continue;
         const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8)", site.domain)!.n;
+        // Choose the constant range before preparing SQL. The equivalent OR
+        // predicate scans priority-zero rows even after the initial sample ends.
+        const candidatePriority=baseline<8?'c.priority>=0':'c.priority>0';
         const articleTurns=Number(this.one('SELECT value FROM meta WHERE key=?','article-turns:'+site.domain)?.value||0);
         const catchup=articleTurns%5===4;
         const order=catchup?'c.discovered ASC,c.rowid ASC':"CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC,c.discovered DESC,c.rowid ASC";
         const orderParams=catchup?[]:[new Date(now-3600_000).toISOString(),now-3600_000];
         const candidate = this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
           WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
-          AND (c.priority>0 OR (c.priority=0 AND ?<8))
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,baseline,now,...orderParams);
+          AND ${candidatePriority}
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,now,...orderParams);
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
@@ -224,13 +235,33 @@ export class Scheduler {
   }
   private mapCandidate(item: Found, source: Row, domain: string, started: number, observed: number, now: number) {
     if(domainFor(item.url)!==domain) return 0;
+    const existing=this.one(`SELECT c.*,t.id candidate_task_id,t.state candidate_task_state,t.priority candidate_task_priority
+      FROM candidates c LEFT JOIN crawl_tasks t ON t.url=c.url AND t.purpose='article' WHERE c.url=?`,item.url);
+    // Settled candidates have no remaining mapping work. Repeated homepage and
+    // sitemap links must not issue unused writes or rebuild their tasks.
+    if(existing && existing.state!=='pending') return 0;
     const publication=item.published?Date.parse(item.published):null;
     const priority=publication!==null?(publication>=started?100:-10):source.polls>0?urlRecencyPriority(item.url,now):0;
-    const count=Number(this.run(`INSERT OR IGNORE INTO candidates(url,domain,source,discovered,published_hint,priority) VALUES (?,?,?,?,?,?)`,item.url,domain,source.url,observed,item.published,priority).changes);
-    // Repeated homepage sightings retain their original discovery timestamp.
-    if(item.published || (source.kind==='html' && priority>0)) this.run("UPDATE candidates SET published_hint=coalesce(published_hint,?),priority=max(priority,?),discovered=min(discovered,?) WHERE url=? AND state='pending'",item.published,priority,observed,item.url);
-    this.ensureTask(item.url,'article');
-    return count;
+    if(!existing) {
+      const count=Number(this.run(`INSERT OR IGNORE INTO candidates(url,domain,source,discovered,published_hint,priority) VALUES (?,?,?,?,?,?)`,item.url,domain,source.url,observed,item.published,priority).changes);
+      this.ensureTask(item.url,'article');
+      return count;
+    }
+    let nextPriority=existing.priority;
+    // Keep the same hint/priority/discovery rules, but avoid writing rows whose
+    // values already match. These mappings run within the caller's transaction.
+    if(item.published || (source.kind==='html' && priority>0)) {
+      const hint=existing.published_hint ?? item.published;
+      nextPriority=Math.max(existing.priority,priority);
+      const discovered=Math.min(existing.discovered,observed);
+      if(hint!==existing.published_hint || nextPriority!==existing.priority || discovered!==existing.discovered)
+        this.run('UPDATE candidates SET published_hint=?,priority=?,discovered=? WHERE url=?',hint,nextPriority,discovered,item.url);
+    }
+    if(existing.candidate_task_id===null)
+      this.run(`INSERT OR IGNORE INTO crawl_tasks(domain,url,purpose,priority,next_crawl_at,current_url) VALUES (?,?,'article',?,?,?)`,existing.domain,item.url,nextPriority,existing.next_attempt,item.url);
+    else if(existing.candidate_task_state==='ready' && existing.candidate_task_priority!==nextPriority)
+      this.run('UPDATE crawl_tasks SET priority=? WHERE id=?',nextPriority,existing.candidate_task_id);
+    return 0;
   }
   private async mapDiscoveryChunks(task: Row, value: Completion, found: ReturnType<typeof discover>) {
     const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
@@ -272,7 +303,7 @@ export class Scheduler {
   }
   private processingFailure(a: Row, error: unknown) {
     const message=String(error), task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!;
-    if(task.purpose==='discovery' && /Response exceeds 5 MiB|Not a supported feed or sitemap/.test(message)) {
+    if(task.purpose==='discovery' && /Response exceeds 5 MiB|Not a supported feed or sitemap|Truncated RSS contains no complete items/.test(message)) {
       this.transaction(()=> {
         this.fail(task,message);
         this.run("UPDATE attempt_assignments SET processing='done',process_errors=process_errors+1,process_error=? WHERE attempt_id=?",message,a.attempt_id);
@@ -299,7 +330,7 @@ export class Scheduler {
   processAsync(): Promise<void> {
     if(this.closing) return Promise.resolve();
     if(this.processingJob) return this.processingJob;
-    const a=this.one("SELECT * FROM attempt_assignments WHERE processing='pending' AND process_after<=? ORDER BY request_id LIMIT 1",this.clock());
+    const a=this.nextProcessing();
     if(!a) return Promise.resolve();
     this.processingJob=(async()=> {
       try {
@@ -322,6 +353,27 @@ export class Scheduler {
       } catch(error) {this.processingFailure(a,error);}
     })().finally(()=> {this.processingJob=undefined;if(!this.closing) setImmediate(()=>void this.processAsync().catch(error=>console.error('archive processing failed',error)));});
     return this.processingJob;
+  }
+  private nextProcessing(): Row | undefined {
+    const now=this.clock();
+    // Cheap completions unblock robots, redirects and retry state immediately.
+    const base=`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
+      JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?`;
+    const control=this.one(base+` AND (r.error IS NOT NULL OR r.status IS NULL OR r.status<>200
+      OR t.purpose NOT IN ('article','discovery')) ORDER BY a.request_id LIMIT 1`,now);
+    if(control)return control;
+    const discovery=()=>this.one(base+" AND t.purpose='discovery' ORDER BY a.request_id LIMIT 1",now);
+    if(this.articlesSinceDiscovery>=3) {
+      const a=discovery();
+      if(a) {this.articlesSinceDiscovery=0;return a;}
+    }
+    // Keep fresh articles timely, while one in five turns drains older archives.
+    const direction=this.articleParses%5===4?'ASC':'DESC';
+    const article=this.one(base+` AND t.purpose='article' ORDER BY a.request_id ${direction} LIMIT 1`,now);
+    if(article) {this.articlesSinceDiscovery++;this.articleParses++;return article;}
+    const a=discovery();
+    if(a)this.articlesSinceDiscovery=0;
+    return a;
   }
   async close() {
     this.closing=true;

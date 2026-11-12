@@ -12,15 +12,12 @@
     "start": "tsx services/crawler/src/loop/cli.ts start",
     "stop": "tsx services/crawler/src/loop/cli.ts stop",
     "status": "tsx services/crawler/src/loop/cli.ts status",
-    "test": "tsx --test apps/dashboard/src/api/*.test.ts apps/dashboard/src/metrics/*.test.ts packages/core/src/*.test.ts services/crawler/src/scheduler/*.test.ts services/crawler/src/fetcher/*.test.ts services/crawler/src/fetcher/transports/*.test.ts tools/simulator/*.test.ts packages/reconciliation/src/*.test.ts services/monitor/src/*.test.ts",
     "dashboard:api": "tsx apps/dashboard/src/api/index.ts",
     "dashboard:build": "npm --prefix apps/dashboard run build",
     "check:boundaries": "node tools/simulator/check-boundaries.mjs",
     "simulator": "node tools/simulator/server.mjs",
     "scheduler": "tsx services/crawler/src/scheduler/index.ts",
     "worker": "tsx services/crawler/src/fetcher/index.ts",
-    "check:shadow": "node --import tsx tools/simulator/shadow.mjs",
-    "check:durable": "node --import tsx tools/simulator/check-durable.mjs",
     "monitor": "node --env-file-if-exists=.env.monitor --import tsx services/monitor/src/index.ts"
   },
   "devDependencies": {

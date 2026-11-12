@@ -9,10 +9,9 @@ Install from the repository root:
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r services/fetcher-impersonate/requirements.txt
-.venv/bin/python services/fetcher-impersonate/check-cffi.py
 ```
 
-`check-cffi.py` uses a loopback fixture server only. `CRAWLER_PYTHON` remains the
+`CRAWLER_PYTHON` remains the
 crawler's Python executable setting; the diagnostic uses `PROBE_PYTHON` as before.
 
 ## Existing stdin/stdout contract

@@ -31,6 +31,6 @@ Persistent production data remains `/var/lib/exa-crawler/data`. Code releases ca
 the database, snapshots, site start times, queues and request ledger do not.
 
 `npm run check:boundaries` rejects common outbound HTTP calls outside the fetcher,
-cross-service imports and database use in the Python helper. Tests prove rejection.
-This is a lexical guard, not a security sandbox; runtime integration tests use fixtures
-with actual Node sockets blocked. Test utilities and browser UI are outside the guard.
+cross-service imports and database use in the Python helper.
+This is a lexical guard, not a security sandbox. Simulator utilities and browser UI
+are outside the guard. Automated suites were removed by project preference.

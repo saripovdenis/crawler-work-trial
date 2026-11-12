@@ -1,5 +1,10 @@
 # Crawler work trial
 
+**Production deploys only `master`.** Merge feature work first, then run
+`sudo /usr/local/sbin/deploy-exa-master` on the VM. Never deploy branch archives.
+See [release safeguards and rollback](deploy/README.md).
+
+
 TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler needs no API keys; optional external reconciliation uses provider keys.
 
 ## Current runtime: durable scheduler + fetch worker
@@ -145,12 +150,12 @@ This is a running baseline, not a completed benchmark or full 100,000-site archi
 ```sh
 npm run check
 npm run check:boundaries
-npm test
+npm run dashboard:build
 ```
 
-Tests cover setup/steady-state limits, the transition, shared domain mapping, parser
-fixtures, freshness, and mocked transport accounting for robots, redirects, failures,
-and Retry-After. Tests use temporary storage and make no live HTTP requests.
+Automated tests are removed by project preference. Do not add or run them unless
+explicitly requested; see [AGENTS.md](AGENTS.md). Use builds, static checks and manual
+inspection. `npm run simulator` serves local sample pages for manual work.
 
 Set `CRAWLER_DATA_DIR` in the process environment to change storage; `.env` is not auto-loaded.
 Do not run multiple instances with different data directories against the same sites:
@@ -168,7 +173,6 @@ Install Python 3.10+ dependencies in a virtual environment:
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r services/fetcher-impersonate/requirements.txt
-.venv/bin/python services/fetcher-impersonate/check-cffi.py
 CRAWLER_PYTHON="$PWD/.venv/bin/python" npm start
 ```
 
@@ -249,24 +253,14 @@ Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
 There are no write endpoints. API traffic is capped globally at 300 requests/10s,
 with at most two simultaneous saved-response inspections.
 
-Validation: `npm run check`, `npm test`, `npm run dashboard:build`.
-
-Offline process/parity check (read-only input snapshot; writes only to a temporary copy):
-
-```sh
-node --import tsx tools/simulator/check-layout.mjs /path/to/snapshot.sqlite
-# Optional final argument: pre-move checkout, to compare every API query family.
-```
-
-The smoke replaces Node fetch with saved fixtures, blocks Node sockets, and uses an
-offline Python-shaped child. The real Python contract test contacts loopback only.
+Validation: `npm run check`, `npm run check:boundaries`, `npm run dashboard:build`,
+and manual inspection. Deployments retain database backups and service health checks.
 
 ### Freshness dashboard
 
-Open `/freshness` for p50/p75/p90 fetch delay against Google News and Exa,
-by provider and domain. Switch between publication and first observation;
-all filter choices stay in the URL. Per-article timing now lives here.
-See [freshness definitions](docs/METRICS.md#freshness-comparison).
-Use the normal `npm run dashboard:build` and `npm run dashboard:api` commands.
-For an isolated preview, point `CRAWLER_DATA_DIR` and `RECONCILER_DB` at copies
-of the databases and set a spare `PORT`, such as `4338`.
+Open `/freshness` for P50/P75/P90 of fetch finish minus the earliest Google/Exa
+publication date, followed by a paginated URL table. See
+[freshness definitions](docs/METRICS.md#publication-to-fetch-delay).
+Use `npm run dashboard:build` and `npm run dashboard:api`.
+For local inspection, point `CRAWLER_DATA_DIR` and `RECONCILER_DB` at database copies.
+

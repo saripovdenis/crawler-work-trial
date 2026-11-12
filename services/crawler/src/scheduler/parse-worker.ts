@@ -20,7 +20,7 @@ export type ParseInput = Archive & (
 export type ParseResult =
   | { kind: 'discovery'; found: ReturnType<typeof discover> }
   | { kind: 'article'; article: ReturnType<typeof parseArticle> };
-type Pending = { id: number; resolve(value: ParseResult): void; reject(error: Error): void };
+type Pending = { id: number; timer: ReturnType<typeof setTimeout>; resolve(value: ParseResult): void; reject(error: Error): void };
 
 // One archive at a time. SQLite remains the queue and retry authority; this
 // helper never accumulates a second in-memory work queue or accesses the DB.
@@ -38,9 +38,16 @@ export class ArchiveParser {
     worker.ref();
     return new Promise((resolve, reject) => {
       const id = ++this.sequence;
-      this.pending = { id, resolve, reject };
+      const timer=setTimeout(()=> {
+        if(this.worker!==worker || this.pending?.id!==id)return;
+        this.worker=undefined;this.pending=undefined;
+        reject(new Error('Archive parser timed out after 30 seconds'));
+        void worker.terminate();
+      },30_000);
+      timer.unref();
+      this.pending = { id, timer, resolve, reject };
       try { worker.postMessage({ id, directory: this.directory, input }); }
-      catch (error) { this.pending = undefined; worker.unref(); reject(error as Error); }
+      catch (error) { clearTimeout(timer);this.pending = undefined; worker.unref(); reject(error as Error); }
     });
   }
 
@@ -50,6 +57,7 @@ export class ArchiveParser {
     worker.on('message', message => {
       const pending = this.pending;
       if (this.worker !== worker || !pending || message.id !== pending.id) return;
+      clearTimeout(pending.timer);
       this.pending = undefined;
       worker.unref();
       if (message.error) {
@@ -63,6 +71,7 @@ export class ArchiveParser {
       this.worker = undefined;
       const pending = this.pending;
       this.pending = undefined;
+      if(pending)clearTimeout(pending.timer);
       pending?.reject(error);
     };
     worker.on('error', failed);
@@ -74,7 +83,10 @@ export class ArchiveParser {
     this.closed = true;
     const worker = this.worker;
     this.worker = undefined;
-    this.pending?.reject(new Error('Archive parser is closed'));
+    if(this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(new Error('Archive parser is closed'));
+    }
     this.pending = undefined;
     if (worker) await worker.terminate();
   }
