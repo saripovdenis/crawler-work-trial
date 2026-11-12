@@ -1,0 +1,63 @@
+export const providerIds = [
+  "gdelt",
+  "google",
+  "exa",
+  "newsapi",
+  "serper",
+] as const;
+export type ProviderId = (typeof providerIds)[number];
+export const pollInterval = 30 * 60_000;
+export const editions: Record<
+  string,
+  { hl: string; gl: string; ceid: string }
+> = {};
+const edition = (domains: string[], hl: string, gl: string, language: string) =>
+  domains.forEach((d) => (editions[d] = { hl, gl, ceid: `${gl}:${language}` }));
+edition(["sina.com.cn", "eastmoney.com", "ce.cn"], "zh-CN", "CN", "zh-Hans");
+edition(["zaobao.com.sg"], "zh-CN", "SG", "zh-Hans");
+edition(["udn.com"], "zh-TW", "TW", "zh-Hant");
+edition(["chosun.com"], "ko", "KR", "ko");
+edition(["antaranews.com"], "id", "ID", "id");
+edition(["hurriyet.com.tr", "haberturk.com"], "tr", "TR", "tr");
+edition(["youm7.com"], "ar", "EG", "ar");
+edition(["eldiario.es", "elmundo.es", "eleconomista.es"], "es", "ES", "es");
+edition(["biobiochile.cl"], "es-419", "CL", "es-419");
+edition(["cnnbrasil.com.br"], "pt-BR", "BR", "pt-419");
+edition(["mediapart.fr"], "fr", "FR", "fr");
+edition(["bbc.com"], "en-GB", "GB", "en");
+edition(["hoodline.com"], "en-US", "US", "en");
+edition(["indiatimes.com", "newindianexpress.com"], "en-IN", "IN", "en");
+export function providerConfig(env: NodeJS.ProcessEnv = process.env) {
+  const cap = (name: string, fallback: number) => {
+    const n = Number(env[name] ?? fallback);
+    if (!Number.isInteger(n) || n < 0) throw new Error(`Invalid ${name}`);
+    return n;
+  };
+  return providerIds.map((id) => ({
+    id,
+    key:
+      id === "exa"
+        ? env.EXA_API_KEY
+        : id === "newsapi"
+          ? env.NEWSAPI_AI_KEY
+          : id === "serper"
+            ? env.SERPER_API_KEY
+            : undefined,
+    daily: cap(
+      `MONITOR_${id.toUpperCase()}_DAILY_LIMIT`,
+      id === "serper" ? 10 : 1000,
+    ),
+    lifetime: cap(
+      `MONITOR_${id.toUpperCase()}_TOTAL_LIMIT`,
+      id === "newsapi" ? 2000 : id === "exa" ? 1000 : id === "serper" ? 100 : 0,
+    ),
+    enabled:
+      !["exa", "newsapi", "serper"].includes(id) ||
+      !!(id === "exa"
+        ? env.EXA_API_KEY
+        : id === "newsapi"
+          ? env.NEWSAPI_AI_KEY
+          : env.SERPER_API_KEY),
+    scheduled: id !== "serper",
+  }));
+}

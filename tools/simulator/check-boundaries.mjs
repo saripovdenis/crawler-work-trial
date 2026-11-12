@@ -8,7 +8,7 @@ const clientImport = /(?:from\s*|import\s*\(|require\s*\()\s*['"](?:node:)?(?:ht
 const service = path => path.match(/^services\/([^/]+)\//)?.[1];
 export function violationsFor(path, source) {
   const errors = [];
-  const transport = path.startsWith('services/crawler/src/fetcher/');
+  const transport = (path.startsWith('services/crawler/src/fetcher/') || path === 'services/monitor/src/client.ts');
   const python = path === 'services/fetcher-impersonate/cffi-fetch.py';
   const pythonClient = /(?:^|\n)\s*(?:from\s+(?:curl_cffi|urllib|requests|httpx|aiohttp)\b|import\s+(?:requests|httpx|aiohttp|urllib)\b)/;
   if (!transport && !python && (httpCall.test(source) || clientImport.test(source) || pythonClient.test(source))) errors.push(`${path}: outbound HTTP outside the fetcher`);
