@@ -1,0 +1,30 @@
+{
+  "name": "crawler-work-trial",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "check": "tsc --noEmit",
+    "start": "tsx src/cli.ts start",
+    "stop": "tsx src/cli.ts stop",
+    "status": "tsx src/cli.ts status",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "cheerio": "^1.2.0",
+    "fast-xml-parser": "^5.12.0",
+    "jsdom": "^31.0.0",
+    "robots-parser": "^3.0.1"
+  }
+}

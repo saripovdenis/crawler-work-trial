@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Check types",
+      "type": "npm",
+      "script": "check",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "Run starter",
+      "type": "npm",
+      "script": "dev",
+      "problemMatcher": []
+    }
+  ]
+}
