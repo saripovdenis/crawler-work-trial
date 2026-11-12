@@ -10,7 +10,8 @@ import { domainFor, classify } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
 import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
-import { reserveSlot } from './budget.js';
+import { reserveSlot, slotDue } from './budget.js';
+import { sourcePriority } from '../../../../config/discovery.js';
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
 const UA = 'ExaTrialCrawler/0.1';
 type Row = Record<string, any>;
@@ -25,7 +26,7 @@ export class Scheduler {
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
     catch(e) { this.db.exec('ROLLBACK'); throw e; }
   }
-  recover() {
+  recover(process = true) {
     const now = this.clock();
     this.transaction(() => {
       for (const a of this.all('SELECT * FROM attempt_assignments WHERE terminal IS NULL AND lease_until<=?', now)) {
@@ -35,11 +36,11 @@ export class Scheduler {
         this.fail(this.one('SELECT * FROM crawl_tasks WHERE id=?', a.task_id)!, 'Lease expired; outcome unknown');
       }
     });
-    this.process();
+    if (process) this.process(1);
   }
   claim(worker: string, claim: string): Claim {
     if (![worker,claim].every(x => typeof x === 'string' && /^[\w.-]{1,128}$/.test(x))) throw new ContractError('Invalid worker_id or claim_id');
-    this.recover();
+    this.recover(false);
     return this.transaction(() => {
       const prior = this.one('SELECT * FROM attempt_assignments WHERE claim_id=?', claim);
       if (prior) {
@@ -49,14 +50,18 @@ export class Scheduler {
       const now = this.clock();
       for (const site of sites) {
         if (!this.one('SELECT 1 FROM sites WHERE domain=?',site.domain)) continue;
-        if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND (terminal IS NULL OR processing='pending')", site.domain)) continue;
+        if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL", site.domain)) continue;
+        // Avoid scanning large candidate queues before this domain can spend a slot.
+        if (slotDue(this.db, site.domain, site.requestsPerMinute, 0, now) > now) continue;
         const baseline = this.one("SELECT count(*) n FROM candidates WHERE domain=? AND priority=0 AND state<>'pending'", site.domain)!.n;
-        const candidate = this.one(`SELECT t.* FROM crawl_tasks t JOIN candidates c ON c.url=t.url
-          WHERE t.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
-          AND (c.priority>0 OR (c.priority=0 AND ?<8)) ORDER BY c.priority DESC,c.discovered DESC,c.rowid ASC LIMIT 1`, site.domain,now,baseline);
-        const source = this.one(`SELECT t.* FROM crawl_tasks t JOIN sources s ON s.url=t.url
+        const candidate = this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
+          WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
+          AND (c.priority>0 OR (c.priority=0 AND ?<8))
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%') ORDER BY c.priority DESC,c.discovered DESC,c.rowid ASC LIMIT 1`, site.domain,now,baseline,now);
+        const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
-          ORDER BY CASE WHEN s.polls=0 AND s.errors=0 THEN 0 ELSE 1 END,s.next_poll ASC LIMIT 1`,site.domain,now);
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
+          .sort((a,b)=>sourcePriority(b.url,b.kind)-sourcePriority(a.url,a.kind)||a.next_poll-b.next_poll)[0];
         const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
         let task = source && (turns>=2 || !candidate) ? source : candidate;
         // Audits only use otherwise idle slots, at most one starting per domain/hour.
@@ -68,7 +73,7 @@ export class Scheduler {
         if (!task) continue;
         const assignedDomain = domainFor(task.current_url);
         if (!assignedDomain) { this.fail(task,'URL is outside configured domains',true); continue; }
-        if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND (terminal IS NULL OR processing='pending')",assignedDomain)) continue;
+        if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL",assignedDomain)) continue;
         let delay = 0;
         if (task.purpose !== 'robots') {
           const origin = new URL(task.current_url).origin;
@@ -78,7 +83,7 @@ export class Scheduler {
             this.run(`INSERT INTO crawl_tasks(domain,url,purpose,next_crawl_at,current_url,parent_id,origin)
               VALUES (?,?,'robots',?,?,?,?) ON CONFLICT(url,purpose) DO UPDATE SET state='ready',next_crawl_at=excluded.next_crawl_at,
               current_url=excluded.current_url,hops=0,parent_id=excluded.parent_id
-              WHERE crawl_tasks.state='processed'`, assignedDomain,url,now,url,task.id,origin);
+              WHERE crawl_tasks.state='processed' AND crawl_tasks.next_crawl_at<=excluded.next_crawl_at`, assignedDomain,url,now,url,task.id,origin);
             task = this.one("SELECT * FROM crawl_tasks WHERE url=? AND purpose='robots'",url)!;
             if (task.state!=='ready' || task.next_crawl_at>now) continue;
           } else {
@@ -151,9 +156,16 @@ export class Scheduler {
       return;
     }
     if(task.purpose==='robots') {
-      this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
+      // A broken robots endpoint must not consume the domain's entire budget.
+      // Keep the origin unavailable for an hour, including after a restart.
+      const due=now+3600_000;
+      this.run("UPDATE crawl_tasks SET state='processed',next_crawl_at=?,current_url=url,hops=0 WHERE id=?",due,task.id);
       const parent=this.one('SELECT * FROM crawl_tasks WHERE id=?',task.parent_id);
-      if(parent) this.fail(parent,error,denied);
+      if(parent) {
+        this.run('UPDATE crawl_tasks SET next_crawl_at=max(next_crawl_at,?) WHERE id=?',due,parent.id);
+        if(parent.purpose==='discovery') this.run('UPDATE sources SET next_poll=max(next_poll,?),errors=errors+1,last_error=? WHERE url=?',due,error,parent.url);
+        if(parent.purpose==='article') this.run('UPDATE candidates SET next_attempt=max(next_attempt,?),last_error=? WHERE url=?',due,error,parent.url);
+      }
       return;
     }
     if(task.purpose==='discovery') {
@@ -171,8 +183,8 @@ export class Scheduler {
       this.run('UPDATE scheduler_domains SET articles_since_poll=articles_since_poll+1 WHERE domain=?',task.domain);
     }
   }
-  process() {
-    for(const a of this.all("SELECT * FROM attempt_assignments WHERE processing='pending' AND process_after<=? ORDER BY request_id LIMIT 50",this.clock())) {
+  process(limit = 50) {
+    for(const a of this.all("SELECT * FROM attempt_assignments WHERE processing='pending' AND process_after<=? ORDER BY request_id LIMIT ?",this.clock(),limit)) {
       try {
         const exports: {payload:string;fresh:boolean}[]=[];
         this.transaction(()=> {
@@ -218,7 +230,9 @@ export class Scheduler {
       this.run('INSERT OR REPLACE INTO robots(origin,body,expires) VALUES (?,?,?)',task.origin,body,now+ttl);
       const auditParent=task.parent_id && this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose==='audit';
       // Robots fetched only for an external audit must not seed crawler discovery.
-      for(const map of auditParent?[]:robotsParser(task.origin+'/robots.txt',body).getSitemaps().slice(0,6)) {
+      for(const map of auditParent?[]:robotsParser(task.origin+'/robots.txt',body).getSitemaps()
+        .filter(url=>domainFor(url)===task.domain && sourcePriority(url,'sitemap')>=0)
+        .sort((a,b)=>sourcePriority(b,'sitemap')-sourcePriority(a,'sitemap')).slice(0,6)) {
         if(domainFor(map)===task.domain) { this.run('INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,?)',map,task.domain,'sitemap'); this.ensureTask(map,'discovery'); }
       }
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);return;
@@ -233,11 +247,12 @@ export class Scheduler {
     if(task.purpose==='discovery') {
       if(status!==200 && status!==304) {this.fail(task,`HTTP ${status}`);return;}
       const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
-      let count=0;
+      let count=0, partial=false;
       if(status===200) {
         const found=discover(body,task.current_url,source.kind);
+        partial=found.partial;
         for(const child of found.sources) {
-          if(domainFor(child.url)!==site.domain||source.depth>=3) continue;
+          if(domainFor(child.url)!==site.domain||source.depth>=3 || sourcePriority(child.url,child.kind)<0) continue;
           if(this.one('SELECT count(*) n FROM sources WHERE domain=?',site.domain)!.n<18)
             { this.run('INSERT OR IGNORE INTO sources(url,domain,kind,depth) VALUES (?,?,?,?)',child.url,site.domain,child.kind,source.depth+1); this.ensureTask(child.url,'discovery'); }
         }
@@ -251,8 +266,9 @@ export class Scheduler {
         }
       }
       const interval=Math.max(30_000,Math.ceil(180_000/site.requestsPerMinute));
-      const due=now+interval*(source.kind==='sitemap'?2:1);
-      this.run('UPDATE sources SET polls=polls+1,errors=0,last_error=NULL,next_poll=?,discovered=discovered+?,etag=coalesce(?,etag),modified=coalesce(?,modified) WHERE url=?',due,count,value.headers.etag??null,value.headers['last-modified']??null,task.url);
+      const due=now+(sourcePriority(source.url,source.kind)<0?6*3600_000:interval*(source.kind==='sitemap'?2:1));
+      // Do not cache a partial response: next poll must request the complete body.
+      this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial RSS: only complete items processed':null,due,count,partial?null:(value.headers.etag??source.etag),partial?null:(value.headers['last-modified']??source.modified),task.url);
       this.run("UPDATE crawl_tasks SET state='ready',current_url=url,hops=0,next_crawl_at=? WHERE id=?",due,task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=0 WHERE domain=?',site.domain);
     } else {

@@ -17,6 +17,7 @@ export function schedulerServer(scheduler: Scheduler) {
         const id=req.url?.match(/^\/internal\/attempts\/([\w-]+)\/complete$/)?.[1];
         if(!id) throw new ContractError('Not found',404);
         result=scheduler.complete(id,value);
+        setImmediate(()=>scheduler.process(1));
       }
       res.end(JSON.stringify(result));
     } catch(e) {

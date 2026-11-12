@@ -22,7 +22,7 @@ async function until(fn){for(let i=0;i<200;i++){if(fn())return;for(const c of ch
 try{
  let coordinator=start('services/crawler/src/scheduler/index.ts');await until(()=>coordinator.output.includes('listening'));
  let worker=start('services/crawler/src/fetcher/index.ts',true);
- await until(()=>db.prepare("SELECT count(*) n FROM attempt_assignments WHERE processing='done'").get().n>0);
+ await until(()=>db.prepare("SELECT count(*) n FROM attempt_assignments WHERE processing='done' AND request_id>?").get(before.id).n>0);
  await stop(worker);await stop(coordinator);
  assert.ok(!existsSync(join(dir,'crawler.pid')));assert.ok(!existsSync(join(dir,'receipts','fetch-worker.pid')));
  const records=db.prepare('SELECT count(*) n FROM attempt_assignments').get().n;

@@ -382,3 +382,29 @@ test("provider observations preserve each first timestamp and publication across
     f.close();
   }
 });
+
+test('publisher suffixes join Google and Exa without fuzzy or cross-domain matching',()=>{
+  const title="İnönü'de 100 fidan toprakla buluştu";
+  const a={canonical_url:'https://www.haberturk.com/eskisehir-haberleri/123',domain:'haberturk.com',title:title+' - Eskişehir Haberleri - Habertürk Yerel Haberler',published:new Date(now).toISOString()};
+  const exa={...sighting('haberturk.com',a.canonical_url,a.title,now)!,site:a.domain,provider:'exa',observed_at:now};
+  const google={...exa,title,title_key:titleKey(title),provider:'google',url_raw:'https://news.google.com/rss/articles/example',url_key:null};
+  const groups=matchSightings([google,exa],[a]);
+  assert.equal(groups.length,1);assert.equal(groups[0].match,'url');assert.equal(groups[0].provider_timings.length,2);
+  assert.equal(matchSightings([google,exa],[]).length,1);
+  assert.equal(matchSightings([{...google,title:title+' tomorrow'}],[a])[0].match,null);
+  assert.equal(matchSightings([google],[a,{...a,canonical_url:a.canonical_url+'-other'}])[0].match,null);
+});
+
+test('default coverage window is publication hour, not when an old article was first observed',()=>{
+  const f=fixture(),s=new MonitorStore(f.path),crawlerPath=join(f.dir,'crawler.sqlite'),db=new DatabaseSync(crawlerPath);
+  try {
+    db.exec('CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,discovered INTEGER,fetched INTEGER)');
+    s.configure(providerConfig({}).filter(c=>c.id==='google'),now-1000);
+    const job=s.claim(now-1000)!;job.site='bbc.com';
+    s.success(job,[sighting('bbc.com',url+'old','An old story first seen now',now-3600001)!,sighting('bbc.com',url+'new','A new story in the last hour',now-1000)!,sighting('bbc.com',url+'unknown','A story with no known publication',null)!],3,false,null,now-500);
+    const view=new CoverageReader(f.path,crawlerPath).get(new URLSearchParams(),now);
+    assert.equal(view.window,'1h');assert.equal(view.windowTimestamp,'provider_published_at');
+    assert.equal(view.summary?.total,1);assert.equal(view.groups[0].url,url+'new');
+    assert.equal(view.unknownPublication,1);assert.equal(view.summary?.googleOnly,1);assert.equal(view.summary?.shared,0);
+  }finally{db.close();s.db.close();f.close();}
+});

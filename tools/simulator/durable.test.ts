@@ -178,3 +178,48 @@ test('robots fetched for an external audit cannot seed discovery sources',()=>{
     assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,0);
   }finally{f.close();}
 });
+
+test('failed archive processing does not block other tasks on the same domain',()=>{
+  const f=fixture();try {
+    const task=f.scheduler.claim('w','bad-archive').task!;
+    const value=response(f,task);rmSync(join(f.dir,value.response_ref!));
+    f.scheduler.complete(task.attempt_id,value);f.scheduler.process();
+    f.db.exec("INSERT INTO candidates(url,domain,source,discovered,priority) VALUES ('https://www.bbc.com/news/healthy','bbc.com','x',999999,100)");
+    f.scheduler.ensureTask('https://www.bbc.com/news/healthy','article');
+    f.advance();
+    const next=f.scheduler.claim('w','healthy').task!;
+    assert.equal(next.url,'https://www.bbc.com/news/healthy');
+    assert.equal(f.db.prepare('SELECT state FROM crawl_tasks WHERE id=?').get(Number(task.task_id))!.state,'downloaded');
+  }finally{f.close();}
+});
+
+test('failed robots origin backs off across restart without starving healthy origins',()=>{
+  const f=fixture();try {
+    f.db.exec("INSERT INTO candidates(url,domain,source,discovered,priority) VALUES ('https://broken.bbc.com/news/broken','bbc.com','x',999999,100)");
+    f.scheduler.ensureTask('https://broken.bbc.com/news/broken','article');
+    f.db.exec('UPDATE scheduler_domains SET articles_since_poll=0');
+    const task=f.scheduler.claim('w','broken-robots').task!;assert.equal(task.purpose,'robots');
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<html>Not robots</html>'));f.scheduler.process();
+    f.db.exec("INSERT INTO candidates(url,domain,source,discovered,priority) VALUES ('https://broken.bbc.com/news/another','bbc.com','x',1000000,100)");
+    f.scheduler.ensureTask('https://broken.bbc.com/news/another','article');
+    f.advance();
+    const next=new Scheduler(f.db,f.dir,f.now).claim('w','healthy-origin').task!;
+    assert.equal(next.url,'https://www.bbc.com/');
+    assert.equal(f.db.prepare("SELECT count(*) n FROM requests WHERE purpose='robots'").get()!.n,1);
+    assert.equal(f.db.prepare("SELECT attempts FROM candidates WHERE url LIKE '%/broken'").get()!.attempts,0);
+  }finally{f.close();}
+});
+
+test('partial RSS processes only closed items and retries without conditional caching',()=>{
+  const f=fixture();try {
+    f.db.exec("UPDATE sources SET kind='feed',etag='old'");
+    const task=f.scheduler.claim('w','partial-rss').task!;
+    const body='<rss><channel><item><link>https://www.bbc.com/news/whole</link><pubDate>1970-01-01T00:16:00Z</pubDate></item><item><link>https://www.bbc.com/news/broken</link><enclosure url="unfinished';
+    f.scheduler.complete(task.attempt_id,response(f,task,200,body,{etag:'partial'}));f.scheduler.process();
+    const source=f.db.prepare('SELECT * FROM sources').get()!;
+    assert.equal(source.polls,1);assert.equal(source.etag,null);assert.match(String(source.last_error),/Partial RSS/);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,1);
+    assert.equal(f.db.prepare('SELECT url FROM candidates').get()!.url,'https://www.bbc.com/news/whole');
+    assert.equal(f.db.prepare('SELECT processing FROM attempt_assignments').get()!.processing,'done');
+  }finally{f.close();}
+});

@@ -12,23 +12,28 @@ It is not total website coverage. A provider may miss stories, index late, retur
 old articles or truncate a busy domain. No external sample means no percentage,
 not 100%. The combined sample deduplicates providers. The per-provider columns
 show how many unique external articles each contributed, not independent truth.
+Google-only + Exa-only + shared equals the combined sample. Each shared group
+retains both provider records and timestamps. Different indexing, ranking, locale
+and result caps explain different samples; neither provider is ground truth.
 
 Only rows in the crawler's `articles` table count as fetched. Pending candidates
 and failed requests do not count. Incomplete parsed articles do count as fetched;
 `summary.incomplete` reports them separately. Parsing quality remains on Charts.
 
 Matching uses a normalized URL first (tracking parameters, fragments, `www`,
-scheme and trailing slash removed). Otherwise an exact normalized title, same
+scheme and trailing slash removed). Otherwise an exact normalized title (with recognized terminal publisher branding removed), same
 configured domain and publication times within six hours can give a **probable**
 match only when exactly one fetched article qualifies. Ambiguous titles do not
 match. Google wrapper URLs are never followed: Google is matched by title/date.
 This heuristic can miss changed headlines and confuse repeated headlines; URL
 and probable-title counts are shown separately.
 
-The selected 1h/24h/7d window uses `external_sightings.observed_at`: when this
-monitor first saw the item at that provider. It is not publication time or proof
-of when that provider first indexed it. Only publication fields are used
-for title matching. All persisted timestamps and display times are UTC.
+The default window is the last **publication hour**. The 1h/24h/7d selector uses
+`external_sightings.provider_published_at`, not first observation. Old stories
+newly indexed today no longer enter the last-hour sample. Unknown publication
+dates are excluded and counted explicitly. First/last observations and each
+provider's original timestamps remain available in the timing details. All times
+are UTC. Publication is provider-reported, not proof of freshness or indexing time.
 
 New unmatched items receive a 30-minute grace period. Afterwards they appear as
 “Not matched,” not as proven misses. Filters and 30-second UI refreshes only read

@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { db, dataDir, summary } from '../../../../packages/db/src/store.js';
+import { discoverySeeds } from '../../../../config/discovery.js';
 import { sites } from '../../../../config/sites.js';
 import { acquireLock } from '../../../../packages/protocol/src/files.js';
 import { Scheduler } from './durable.js';
@@ -14,7 +15,10 @@ for(const site of sites) {
   db.prepare('INSERT OR IGNORE INTO sites(domain,started) VALUES (?,?)').run(site.domain,now);
   db.prepare("INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,'html')").run(`https://www.${site.domain}/`,site.domain);
 }
+for(const seed of discoverySeeds) db.prepare('INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,?)').run(seed.url,seed.domain,seed.kind);
 const scheduler=new Scheduler(db,dataDir);
+// Revisit failed archives once after a code restart; no network request or charge.
+db.prepare("UPDATE attempt_assignments SET process_after=0 WHERE processing='pending' AND process_error IS NOT NULL").run();
 const server=schedulerServer(scheduler);
 const report=()=> {
   db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES ('heartbeat',?)").run(new Date().toISOString());

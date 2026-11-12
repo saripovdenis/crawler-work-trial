@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { dateIso, normalizeUrl } from './policy.js';
+import { sourcePriority } from '../../../config/discovery.js';
 import type { Article } from './types.js';
 
 export type Found = { url: string; published: string | null };
@@ -13,6 +14,7 @@ const xml = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, proce
 export function discover(body: string, url: string, kind: string) {
   const articles: Found[] = [];
   const sources: Source[] = [];
+  let partial = false;
   const add = (value: unknown, published: unknown = null) => {
     if (typeof value !== 'string') return;
     const next = normalizeUrl(value, url);
@@ -24,10 +26,25 @@ export function discover(body: string, url: string, kind: string) {
   };
   const isHtml = /<!doctype\s+html|<html[\s>]/i.test(body.slice(0, 2000));
   if (!isHtml && (kind !== 'html' || /^\s*(?:<\?xml[^>]*>\s*)?<(?:rss|feed|urlset|sitemapindex)\b/i.test(body))) {
-    const doc = xml.parse(body);
+    let doc;
+    if (/<rss\b/i.test(body.slice(0,2000)) && !/<\/rss>\s*$/i.test(body)) {
+      const items = body.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/g);
+      if (!items?.length) throw new Error('Truncated RSS contains no complete items');
+      body = '<rss><channel>'+items.join('')+'</channel></rss>';
+      partial = true;
+    }
+    try { doc = xml.parse(body); }
+    catch (error) {
+      // Some RSS servers close a successful HTTP response mid-item. Recover only
+      // whole, closed items; keep the partial flag so callers retry without ETag.
+      const items = body.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/g);
+      if (!/<rss\b/i.test(body.slice(0,2000)) || !items?.length) throw error;
+      doc = xml.parse('<rss><channel>'+items.join('')+'</channel></rss>');
+      partial = true;
+    }
     if (doc.sitemapindex) {
       const maps = list(doc.sitemapindex.sitemap).sort((a, b) => {
-        const score = (s: any) => (/news/i.test(s.loc) ? 1e15 : 0) + (Date.parse(s.lastmod) || 0);
+        const score = (s: any) => (sourcePriority(s.loc,'sitemap') * 1e15) + (Date.parse(s.lastmod) || 0);
         return score(b) - score(a);
       });
       for (const m of maps.slice(0, 4)) if (typeof m.loc === 'string') source(m.loc, 'sitemap');
@@ -59,7 +76,7 @@ export function discover(body: string, url: string, kind: string) {
       if (text.length >= 8 && (/\d{5,}|\d{4}[-/]\d{2}|\.s?html?$|\/articles\//i.test(path) || path.split('/').filter(Boolean).length >= 3 || path.length > 65)) add(next);
     });
   }
-  return { articles: [...new Map(articles.map(a => [a.url, a])).values()], sources };
+  return { articles: [...new Map(articles.map(a => [a.url, a])).values()], sources, partial };
 }
 
 export function parseArticle(body: string, url: string, discovered: number, hint: string | null): Article & { dateSource: string | null; isArticle: boolean } {

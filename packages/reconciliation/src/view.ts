@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
-import { urlKey, titleKey, date } from "./identity.js";
+import { urlKey, matchingTitle, date } from "./identity.js";
 import { attachFetchTiming } from "./timing.js";
 type Row = Record<string, any>;
 export type ProviderTiming = {
@@ -53,16 +53,17 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
       const k = raw && urlKey(raw);
       if (k) urls.set(k, a);
     }
-    const k = a.domain + "|" + titleKey(a.title || "");
+    const k = a.domain + "|" + matchingTitle(a.title || "", a.domain);
     const list = titles.get(k) || [];
     list.push(a);
     titles.set(k, list);
   }
   const groups = new Map<string, Group>();
   const groupTitles = new Map<string, Group[]>();
-  for (const row of [...rows].sort(
+  for (const original of [...rows].sort(
     (a, b) => Number(!!b.url_key) - Number(!!a.url_key),
   )) {
+    const row: Row = { ...original, title_key: matchingTitle(original.title || "", original.site) };
     let article = row.url_key ? urls.get(row.url_key) : undefined;
     let kind: Group["match"] = article ? "url" : null;
     let ambiguous = false;
@@ -163,7 +164,7 @@ export class CoverageReader {
     readonly crawlerPath: string,
   ) {}
   get(params: URLSearchParams, now = Date.now()) {
-    const window = params.get("window") || "24h",
+    const window = params.get("window") || "1h",
       site = params.get("site") || "",
       provider = params.get("provider") || "",
       matches = params.get("matches") || "all",
@@ -205,6 +206,8 @@ export class CoverageReader {
     const base = {
       window,
       windowStart: start,
+      windowTimestamp: "provider_published_at",
+      unknownPublication: 0,
       windowEnd: now,
       generatedAt: now,
       sites: sites.map((s) => s.domain),
@@ -236,9 +239,12 @@ export class CoverageReader {
         .prepare(
           `SELECT s.*,r.started_at first_poll_started_at,r.finished_at first_poll_finished_at
           FROM external_sightings s LEFT JOIN provider_runs r ON r.id=s.run_id
-          WHERE s.provider IN ('google','exa') AND s.observed_at>=? AND s.observed_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.observed_at DESC LIMIT 50001`,
+          WHERE s.provider IN ('google','exa') AND s.provider_published_at>=? AND s.provider_published_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.provider_published_at DESC LIMIT 50001`,
         )
         .all(start, now, site, site, provider, provider) as Row[];
+      const unknownPublication = Number(monitor.prepare(`SELECT count(*) n FROM external_sightings
+        WHERE provider IN ('google','exa') AND provider_published_at IS NULL AND last_observed_at>=? AND last_observed_at<?
+        AND (?='' OR site=?) AND (?='' OR provider=?)`).get(start,now,site,site,provider,provider)!.n);
       const articles = crawler
         .prepare(
           `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url FROM articles WHERE (?='' OR domain=?)`,
@@ -274,6 +280,9 @@ export class CoverageReader {
         const matched = list.filter((g) => g.match).length;
         return {
           total: list.length,
+          googleOnly: list.filter(g => g.providers.length === 1 && g.providers[0] === 'google').length,
+          exaOnly: list.filter(g => g.providers.length === 1 && g.providers[0] === 'exa').length,
+          shared: list.filter(g => g.providers.includes('google') && g.providers.includes('exa')).length,
           matched,
           percentage: list.length ? (matched / list.length) * 100 : null,
           urlMatched: list.filter((g) => g.match === "url").length,
@@ -339,6 +348,7 @@ export class CoverageReader {
         ...base,
         ready: true,
         summary: count(groups),
+        unknownPublication,
         groups: displayed,
         groupCount: filtered.length,
         pageCount: Math.ceil(filtered.length / 50),

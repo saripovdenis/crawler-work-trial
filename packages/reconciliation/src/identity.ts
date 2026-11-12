@@ -23,6 +23,20 @@ export function titleKey(value: string) {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
+// Remove only recognized, terminal publisher boilerplate. Never fuzzy-match a
+// changed headline; domain/date uniqueness checks still apply in the matcher.
+export function matchingTitle(value: string, domain: string) {
+  const suffixes: Record<string, RegExp> = {
+    'haberturk.com': /(?:\s+-\s+[^-]{1,80} Haberleri)?\s+-\s+Habert[üu]rk(?: Yerel Haberler| Son Dakika Haber)?\s*$/iu,
+    'eastmoney.com': /\s*[_|–—-]\s*东方财富网\s*$/u,
+    'ce.cn': /\s*[_|–—-]\s*中国经济网(?:——国家经济门户)?\s*$/u,
+    'sina.com.cn': /\s*[_|–—-]\s*新浪(?:财经|网|新闻)(?:[_|–—-]新浪网)?\s*$/u,
+    'indiatimes.com': /\s+[|–—-]\s+(?:Times of India|The Economic Times|IndiaTimes|Indiatimes)(?:\s+News)?\s*$/iu,
+    'bbc.com': /\s+[|–—-]\s+BBC(?: News)?\s*$/iu,
+    'antaranews.com': /\s+[|–—-]\s+ANTARA(?: News)?\s*$/iu,
+  };
+  return titleKey(suffixes[domain] ? value.replace(suffixes[domain], '') : value);
+}
 export function date(value: unknown): number | null {
   if (
     typeof value !== "string" ||

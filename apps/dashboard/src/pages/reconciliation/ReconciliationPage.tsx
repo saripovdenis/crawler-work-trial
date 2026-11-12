@@ -39,7 +39,7 @@ const percent = (v: number | null | undefined) =>
   v == null ? "—" : v.toFixed(1) + "%";
 export default function ReconciliationPage() {
   const query = new URLSearchParams(location.search);
-  const [window, setWindow] = useState(query.get("window") || "24h"),
+  const [window, setWindow] = useState(query.get("window") || "1h"),
     [site, setSite] = useState(query.get("site") || ""),
     [provider, setProvider] = useState(query.get("provider") || ""),
     [matches, setMatches] = useState(query.get("matches") || "all"),
@@ -174,7 +174,7 @@ export default function ReconciliationPage() {
           </div>
           <div className="reconcile-filters">
             <label>
-              Window
+              Published within
               <select
                 value={window}
                 onChange={(e) => {
@@ -271,8 +271,9 @@ export default function ReconciliationPage() {
           </div>
           <p className="reconcile-definition">
             This measures the provider sample, not the whole website. Window
-            uses our first observation at a provider. Exact URL matches are
-            strongest; title + domain + publication time matches are probable.{" "}
+            uses the publication date reported by each provider, in UTC. Exact URL
+            matches are strongest; title + domain + publication time matches are probable.{" "}
+            {data?.unknownPublication > 0 && `${number(data?.unknownPublication || 0)} sightings with unknown publication dates are excluded. `}
             {data?.truncated && (
               <b>
                 One or more result sets reached a provider limit: this is a
@@ -280,6 +281,13 @@ export default function ReconciliationPage() {
               </b>
             )}
           </p>
+          {summary && !provider && (
+            <p className="reconcile-definition">
+              <strong>Combined sample: {number(summary.total)} unique articles.</strong>{" "}
+              {number(summary.googleOnly)} Google News only + {number(summary.exaOnly)} Exa only + {number(summary.shared)} found by both.
+              Different indexes, rankings and result limits produce different samples. Shared articles count once.
+            </p>
+          )}
           <div className="provider-grid">
             {Object.entries(names).map(([id, name]) => {
               const p = (data?.providers || []).find(
