@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { atomicWrite, acquireLock } from '../../../../packages/protocol/src/files.js';
-import { MAX_RESPONSE_BYTES, type Claim, type Assignment, type Completion } from '../../../../packages/protocol/src/index.js';
+import { DISPATCH_MS, MAX_RESPONSE_BYTES, type Claim, type Assignment, type Completion } from '../../../../packages/protocol/src/index.js';
+import { elapsedMs, timingLog } from '../../../../packages/protocol/src/timing.js';
 import { fetchResponse } from './transports/transport.js';
 import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
 const stores=new Map<string,ArchiveStore>();
@@ -16,11 +17,16 @@ const archiveStore=(directory:string)=> {
 type Receipt={claim_id:string; task?:Assignment; dispatched?:boolean; completion?:Completion};
 export async function execute(task: Assignment, directory: string): Promise<Completion> {
   const result:Completion={lease_token:task.lease_token,started_at:null,finished_at:new Date().toISOString(),status:null,headers:{},body_hash:null,response_ref:null,bytes:0,error:null};
+  const started=performance.now(),durations:Record<string,number>={};
+  let phase='dispatch',phaseStarted=started,reused:boolean|undefined;
+  const next=(name:string)=> {durations[phase+'_ms']=elapsedMs(phaseStarted);phase=name;phaseStarted=performance.now();};
   try {
     if(Date.now()>Date.parse(task.start_by)) throw new Error('Dispatch deadline expired');
     if(task.timeout_ms!==20_000 || task.max_response_bytes!==MAX_RESPONSE_BYTES || !['node','chrome136'].includes(task.transport)) throw new Error('Unsupported assignment limits');
     result.started_at=new Date().toISOString();
+    next('response_wait');
     const response=await fetchResponse(task.url,task.headers,AbortSignal.timeout(task.timeout_ms),task);
+    next('body_read');
     result.status=response.status;result.headers=Object.fromEntries(response.headers);
     const chunks:Uint8Array[]=[];let length=0;
     if(response.body) {
@@ -31,13 +37,24 @@ export async function execute(task: Assignment, directory: string): Promise<Comp
         chunks.push(value);
       }
     }
+    next('decode_hash');
     let bytes=Buffer.concat(chunks);
     if(bytes[0]===0x1f&&bytes[1]===0x8b) bytes=gunzipSync(bytes,{maxOutputLength:task.max_response_bytes});
     const hash=createHash('sha256').update(bytes).digest('hex');
-    const {ref}=archiveStore(directory).store(bytes,hash);
+    next('archive_store');
+    const stored=archiveStore(directory).store(bytes,hash);
+    reused=stored.reused;
+    const {ref}=stored;
     result.body_hash=hash;result.response_ref=ref;result.bytes=bytes.length;
   } catch(e) {result.error=String(e).slice(0,4096);}
-  result.finished_at=new Date().toISOString();return result;
+  result.finished_at=new Date().toISOString();
+  durations[phase+'_ms']=elapsedMs(phaseStarted);
+  timingLog('fetch', {attempt_id:task.attempt_id,task_id:task.task_id,domain:task.domain,purpose:task.purpose,
+    transport:task.transport,status:result.status,failed:result.error!==null,failed_phase:result.error?phase:null,
+    dispatch_wait_ms:result.started_at?Date.parse(result.started_at)-(Date.parse(task.start_by)-DISPATCH_MS):null,
+    response_wait_scope:task.transport==='chrome136'?'python_startup_and_full_response':'connection_and_response_headers',
+    ...durations,total_ms:elapsedMs(started),bytes:result.bytes,archive_reused:reused});
+  return result;
 }
 export async function runWorker(directory: string, schedulerUrl: string, concurrency=4, signal: AbortSignal) {
   const base=new URL(schedulerUrl);
@@ -61,6 +78,12 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
     if(!response.ok) throw new Error(`Scheduler HTTP ${response.status}`);
     return response.json();
   }
+  function saveReceipt(path:string,receipt:Receipt,phase:string) {
+    const started=performance.now();
+    let written=false;
+    try {atomicWrite(path,JSON.stringify(receipt));written=true;}
+    finally {timingLog('receipt_write',{attempt_id:receipt.task?.attempt_id,claim_id:receipt.claim_id,phase,written,durable_write_ms:elapsedMs(started)});}
+  }
   // Recovery scans every persisted slot, even if concurrency was reduced on restart.
   const {readdirSync}=await import('node:fs');
   const slots=new Set([...Array.from({length:concurrency},(_,i)=>String(i)),...readdirSync(resolve(directory,'receipts')).filter(x=>/^\d+\.json$/.test(x)).map(x=>x.slice(0,-5))]);
@@ -71,11 +94,17 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
       if(recoveryOnly&&!existsSync(path))return;
       try {
         let receipt:Receipt=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{claim_id:randomUUID()};
-        atomicWrite(path,JSON.stringify(receipt));
+        saveReceipt(path,receipt,'before_claim');
         if(!receipt.task) {
-          const result:Claim=await post('/internal/claims',{worker_id,claim_id:receipt.claim_id});
+          const started=performance.now();
+          let result!:Claim;
+          try {result=await post('/internal/claims',{worker_id,claim_id:receipt.claim_id});}
+          finally {
+            if(!result || result.task || elapsedMs(started)>=1000) timingLog('claim_client',{claim_id:receipt.claim_id,attempt_id:result?.task?.attempt_id,
+              roundtrip_ms:elapsedMs(started),assigned:!!result?.task,failed:!result});
+          }
           if(!result.task) {unlinkSync(path);await sleep(result.retry_after_ms||1000);continue;}
-          receipt.task=result.task;atomicWrite(path,JSON.stringify(receipt));
+          receipt.task=result.task;saveReceipt(path,receipt,'assigned');
         }
         if(!receipt.completion) {
           if(receipt.dispatched) {
@@ -84,12 +113,15 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
             if(Date.now()<Date.parse(receipt.task.lease_until)) {await sleep(1000);continue;}
             receipt.completion={lease_token:receipt.task.lease_token,started_at:null,finished_at:new Date().toISOString(),status:null,headers:{},body_hash:null,response_ref:null,bytes:0,error:'Worker restarted; outcome unknown'};
           } else {
-            receipt.dispatched=true;atomicWrite(path,JSON.stringify(receipt));
+            receipt.dispatched=true;saveReceipt(path,receipt,'before_dispatch');
             receipt.completion=await execute(receipt.task,directory);
           }
-          atomicWrite(path,JSON.stringify(receipt));
+          saveReceipt(path,receipt,'completed');
         }
-        await post(`/internal/attempts/${receipt.task.attempt_id}/complete`,receipt.completion);
+        const started=performance.now();
+        let acknowledged=false;
+        try {await post(`/internal/attempts/${receipt.task.attempt_id}/complete`,receipt.completion);acknowledged=true;}
+        finally {timingLog('complete_client',{attempt_id:receipt.task.attempt_id,acknowledged,roundtrip_ms:elapsedMs(started)});}
         unlinkSync(path);
       } catch(e) {console.error('Worker will retry receipt:',String(e));await sleep(1000);}
     }
