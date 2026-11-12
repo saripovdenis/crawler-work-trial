@@ -30,6 +30,8 @@ configured parent domain. Different Sina subdomains therefore keep separate rule
 as required by the [robots protocol](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
 Successful policies and 404/410 results retain the existing six-hour lifetime;
 401/403 deny policies retain one hour. Failures keep the existing origin cooldown.
+A robots request redirected away from `/robots.txt` to an HTML page is a soft 404
+and is stored like a 404; HTML served at `/robots.txt` itself remains a failure.
 
 A bounded memory cache reuses parsed rules. ETag/Last-Modified validators persist
 in `meta`, tied to the exact response URL, and conditional refreshes still spend a

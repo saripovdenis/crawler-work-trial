@@ -528,7 +528,13 @@ export class Scheduler {
         if([401,403].includes(status)) {body='User-agent: *\nDisallow: /';ttl=ROBOTS_DENIED_TTL_MS;conditional=false;}
         else if([404,410].includes(status)) {body='';conditional=false;}
         else if(status>=400) {this.fail(task,`robots.txt HTTP ${status}`);return;}
-        else if(/<html[\s>]/i.test(body)) {this.fail(task,'robots.txt returned HTML');return;}
+        else if(/<html[\s>]/i.test(body)) {
+          // A redirect that leaves /robots.txt and ends on an HTML page is a soft
+          // 404: the origin has no robots file. HTML served at /robots.txt itself
+          // may be a block page, so that case still fails closed.
+          if(!task.hops || new URL(task.current_url).pathname==='/robots.txt') {this.fail(task,'robots.txt returned HTML');return;}
+          body='';conditional=false;
+        }
         policy=this.robotsCache.save(task.origin,task.current_url,body,now,ttl,value.headers,conditional);
       }
       const auditParent=task.parent_id && this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose==='audit';
