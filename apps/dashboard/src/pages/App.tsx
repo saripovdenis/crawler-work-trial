@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   BarChart3,
+  ScanSearch,
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
@@ -263,7 +264,7 @@ export default function App() {
             </button>
           ))}
           <a className="nav-item" href="/charts"><BarChart3 size={17}/>Charts</a>
-        </nav>
+        <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a></nav>
         <div className="sidebar-note">
           <Radio size={17} />
           <strong>A window into the crawl.</strong>

@@ -26,3 +26,9 @@ The Python executable remains release-local. WorkingDirectory remains the releas
 
 Rollback: restore both units from `RELEASE/deploy/previous-units`, daemon-reload and restart
 the same services. Old code releases remain on disk. No database rollback or migration is needed.
+
+## External reconciliation
+
+See [reconciler deployment and quotas](../docs/RECONCILIATION.md).
+`deploy-reconciler.sh` updates the scheduler/API release and installs the separate
+`exa-reconciler` service. It preserves the running fetch worker and existing data.

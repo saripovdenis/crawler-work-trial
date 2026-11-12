@@ -1,10 +1,10 @@
 # Crawler work trial
 
-TypeScript / Node.js 24 crawler for the 20 configured news sites. No keys needed.
+TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler needs no API keys; optional external reconciliation uses provider keys.
 
 ## Current runtime: durable scheduler + fetch worker
 
-The crawler now has two Node processes. The dashboard remains separate and unchanged.
+The crawler now has two Node processes. The dashboard and external reconciliation monitor run separately.
 The scheduler owns SQLite, budgets and parsing; the worker claims one-request leases
 on loopback HTTP, archives responses and persists retryable receipts. Python stays a
 transport subprocess. See [protocol, recovery and deployment](docs/SCHEDULER.md).
@@ -25,9 +25,11 @@ services/crawler/src/
   loop/                               # legacy loop and scheduler CLI
   scheduler/                          # HTTP coordinator, leases, budgets, pipeline
   fetcher/                             # separate HTTP worker and transports/
+services/monitor/src/                # external provider polls; no publisher HTTP
 services/fetcher-impersonate/          # Python one-request child, requirements.txt
 services/pipeline/src/{sources,newness,extract} # library facades, no daemon
 packages/core/src/                    # shared pure parsing, policy, types
+packages/reconciliation/src/          # provider storage, matching, audit inbox
 packages/db/src/                      # base schema, additive migrations, queries
 config/                               # sites, limits, transport profiles
 tools/simulator/                      # offline fixture server and validation
@@ -55,6 +57,12 @@ source. Python is an on-demand child, never a daemon. Health remains `/api/healt
 The mapper stays inside the existing worker to avoid a logic refactor.
 
 [Architecture](docs/architecture.md) · [move/content audit](docs/REORGANIZATION.md) · [deployment](deploy/README.md)
+
+## External coverage
+
+`npm run monitor` polls external news indexes every 30 minutes. Open `/reconciliation`
+for provider-sample coverage, unmatched stories, quotas and recent calls. Credentials
+belong in private `.env.monitor`. See [matching, limits and deployment](docs/RECONCILIATION.md).
 
 ## Run in Cursor's terminal
 

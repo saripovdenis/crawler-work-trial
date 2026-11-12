@@ -4,6 +4,9 @@ import { resolve, extname } from "node:path";
 import { Observatory } from "../metrics/observability.js";
 import { Charts } from "../metrics/charts.js";
 
+import { CoverageReader } from "../../../../packages/reconciliation/src/view.js";
+const coverage = new CoverageReader(resolve(process.env.RECONCILER_DB || "data/reconciler.sqlite"), resolve(process.env.CRAWLER_DATA_DIR || "data", "crawler.sqlite"));
+
 const charts = new Charts(resolve(process.env.CRAWLER_DATA_DIR || "data"));
 
 const observation = new Observatory(
@@ -46,7 +49,8 @@ const server = createServer(async (req, res) => {
         return;
       }
       let result: unknown;
-      if (url.pathname === "/api/charts/parsing-quality") result = charts.parsingQuality(url.searchParams);
+      if (url.pathname === "/api/reconciliation") result = coverage.get(url.searchParams);
+      else if (url.pathname === "/api/charts/parsing-quality") result = charts.parsingQuality(url.searchParams);
       else if (url.pathname === "/api/overview") result = observation.overview();
       else if (url.pathname === "/api/requests")
         result = observation.requests(url.searchParams);
