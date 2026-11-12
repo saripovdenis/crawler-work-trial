@@ -44,11 +44,10 @@ function jsonObjectAfter(script: string, start: number): any | null {
   return null;
 }
 
-export function publisherStory($: CheerioAPI, url: string): {text: string; publishedAt: string | null} | null {
+function storyFromScripts(scripts: Iterable<string>, url: string): {text: string; publishedAt: string | null} | null {
   const requested=new URL(url);
   if(!arcContentHosts.has(requested.hostname)) return null;
-  for(const element of $('script').toArray()) {
-    const script=$(element).text();
+  for(const script of scripts) {
     const marker=/(?:^|[;\s])Fusion\.globalContent\s*=/g;
     for(const match of script.matchAll(marker)) {
       const story=jsonObjectAfter(script,match.index!+match[0].length);
@@ -82,6 +81,16 @@ export function publisherStory($: CheerioAPI, url: string): {text: string; publi
     }
   }
   return null;
+}
+
+export function publisherStory($: CheerioAPI, url: string) {
+  return storyFromScripts($('script').toArray().map(element=>$(element).text()),url);
+}
+
+// Archive repairs already have title/tags in SQLite. Avoid constructing the full
+// publisher page DOM just to recover its embedded story JSON.
+export function publisherStoryFromHtml(body: string, url: string) {
+  return storyFromScripts(Array.from(body.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi),m=>m[1]!),url);
 }
 
 export function discover(body: string, url: string, kind: string) {

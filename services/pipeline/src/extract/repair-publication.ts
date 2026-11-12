@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { load } from 'cheerio';
-import { publisherPublication, parseArticle } from '../../../../packages/core/src/parse.js';
+import { publisherPublication, parseArticle, publisherStoryFromHtml } from '../../../../packages/core/src/parse.js';
 import { classify, domainFor } from '../../../../packages/core/src/policy.js';
 
 type Row = Record<string, any>;
@@ -88,7 +88,9 @@ export function repairPublication(options: RepairOptions) {
       let published: string | null=row.published;
       let next={...payload}, fingerprint: string=row.fingerprint;
       if(row.domain==='chosun.com') {
-        const parsed=parseArticle(body,request.url,row.discovered,payload.publishedAt || null);
+        const story=publisherStoryFromHtml(body,request.url);
+        const parsed=story ? {...story,isArticle:true,textSource:'fusion.globalContent.content_elements',dateSource:'fusion.globalContent.first_publish_date',title:payload.title,description:payload.description}
+          : parseArticle(body,request.url,row.discovered,payload.publishedAt || null);
         if(!parsed.isArticle || parsed.text.length<200 || parsed.text.length<=(payload.text?.length||0)) { skip('no_improved_article_text'); continue; }
         // Correct text only from the archived response; keep original identity,
         // publication evidence and timing. The request ledger is never changed.

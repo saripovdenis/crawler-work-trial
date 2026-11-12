@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextAllowed, domainFor, classify, dateIso } from './policy.js';
-import { discover, parseArticle } from './parse.js';
+import { discover, parseArticle, publisherStoryFromHtml } from './parse.js';
 
 test('setup and steady-state rolling windows, including transition and restart history', () => {
   assert.equal(nextAllowed(1500, 0, 2, [1000]), 2020);
@@ -89,4 +89,14 @@ test('empty JSON-LD articleBody falls back to rendered article text outside publ
   const text='A reported article paragraph with enough content for extraction. '.repeat(8);
   const page='<html><head><title>Reported news</title><script type="application/ld+json">{"@type":"NewsArticle","headline":"Reported news","articleBody":"","datePublished":"2026-11-12T08:00:00Z"}</script></head><body><article><p>'+text+'</p></article></body></html>';
   assert.equal(parseArticle(page,'https://bbc.com/news/test',Date.now(),null).text,text.trim());
+});
+
+test('direct archive story extraction matches normal parsing without executing script text',()=>{
+  const url='https://www.chosun.com/news/ABC123/';
+  const story={_id:'ABC123',type:'story',first_publish_date:'2026-11-12T08:00:00Z',content_elements:[{type:'text',content:'<p>'+('Original article text. '.repeat(20))+'</p>'}]};
+  const html='<html><head><title>Story</title></head><body><script>Fusion.globalContent='+JSON.stringify(story)+'; throw new Error("must not execute")</script></body></html>';
+  const fast=publisherStoryFromHtml(html,url)!;
+  assert.equal(fast.text,parseArticle(html,url,Date.now(),null).text);
+  assert.equal(fast.publishedAt,'2026-11-12T08:00:00.000Z');
+  assert.equal(publisherStoryFromHtml(html,'https://www.chosun.com/news/DIFFERENT/'),null);
 });
