@@ -5,6 +5,8 @@ import { db, dataDir, run, summary } from '../../../../packages/db/src/store.js'
 import { worker, log } from './worker.js';
 import { controller, pause, signal } from '../fetcher/http.js';
 
+if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='attempt_assignments'").get()) throw new Error('Legacy loop disabled after durable migration; use npm run scheduler and npm run worker');
+
 const lock = resolve(dataDir, 'crawler.pid');
 try {
   const pid = Number(readFileSync(lock, 'utf8'));

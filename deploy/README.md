@@ -1,3 +1,11 @@
+# Current deployment
+
+Use [the durable scheduler deployment](../docs/SCHEDULER.md#deployment-and-rollback).
+`redeploy.sh` delegates to `deploy-durable.sh`; use a `/opt/exa-crawler/durable-COMMIT` release.
+The dashboard remains on its current release.
+
+## Historical layout-only deployment
+
 # Existing VM deployment
 
 Two Node services, unchanged users, environment names, limits, ports and public URL.

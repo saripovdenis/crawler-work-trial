@@ -7,7 +7,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "tsx services/crawler/src/loop/index.ts",
+    "dev": "tsx services/crawler/src/scheduler/index.ts",
     "check": "tsc --noEmit",
     "start": "tsx services/crawler/src/loop/cli.ts start",
     "stop": "tsx services/crawler/src/loop/cli.ts stop",
@@ -16,7 +16,11 @@
     "dashboard:api": "tsx apps/dashboard/src/api/index.ts",
     "dashboard:build": "npm --prefix apps/dashboard run build",
     "check:boundaries": "node tools/simulator/check-boundaries.mjs",
-    "simulator": "node tools/simulator/server.mjs"
+    "simulator": "node tools/simulator/server.mjs",
+    "scheduler": "tsx services/crawler/src/scheduler/index.ts",
+    "worker": "tsx services/crawler/src/fetcher/index.ts",
+    "check:shadow": "node --import tsx tools/simulator/shadow.mjs",
+    "check:durable": "node --import tsx tools/simulator/check-durable.mjs"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",

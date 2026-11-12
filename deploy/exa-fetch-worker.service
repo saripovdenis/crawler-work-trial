@@ -1,0 +1,36 @@
+[Unit]
+Description=Exa durable HTTP fetch worker
+After=network-online.target exa-crawler.service
+Wants=network-online.target exa-crawler.service
+RequiresMountsFor=/var/lib/exa-crawler
+ConditionPathExists=/var/lib/exa-crawler/ready
+
+[Service]
+Type=simple
+User=exa-crawler
+Group=exa-crawler
+WorkingDirectory=/opt/exa-crawler/layout-v1
+Environment=NODE_ENV=production
+Environment=CRAWLER_DATA_DIR=/var/lib/exa-crawler/data
+Environment=CRAWLER_PYTHON=/opt/exa-crawler/layout-v1/.venv/bin/python
+Environment=SCHEDULER_URL=http://127.0.0.1:4319
+Environment=FETCH_CONCURRENCY=4
+ExecStart=/usr/local/bin/node --import tsx services/crawler/src/fetcher/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+KillSignal=SIGTERM
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/exa-crawler/data/snapshots /var/lib/exa-crawler/data/receipts
+InaccessiblePaths=/var/lib/exa-crawler/data/crawler.sqlite
+CapabilityBoundingSet=
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

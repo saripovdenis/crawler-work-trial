@@ -2,18 +2,33 @@
 
 TypeScript / Node.js 24 crawler for the 20 configured news sites. No keys needed.
 
+## Current runtime: durable scheduler + fetch worker
+
+The crawler now has two Node processes. The dashboard remains separate and unchanged.
+The scheduler owns SQLite, budgets and parsing; the worker claims one-request leases
+on loopback HTTP, archives responses and persists retryable receipts. Python stays a
+transport subprocess. See [protocol, recovery and deployment](docs/SCHEDULER.md).
+
+```sh
+npm run scheduler  # terminal 1; existing CRAWLER_DATA_DIR
+npm run worker     # terminal 2; same data directory, no SQLite access
+```
+
+`npm start` / `npm run dev` now start the scheduler only; run the worker separately.
+The historical single-loop notes below describe the preserved discovery/parsing policies.
+
 ## Repository layout
 
 ```text
 apps/dashboard/src/{pages,api,metrics}  # UI + read-only API, one Node process
 services/crawler/src/
-  loop/                               # entry point, CLI, existing worker/mapping
-  scheduler/                          # persisted request reservations
-  fetcher/transports/                 # outbound HTTP and Python adapter
+  loop/                               # legacy loop and scheduler CLI
+  scheduler/                          # HTTP coordinator, leases, budgets, pipeline
+  fetcher/                             # separate HTTP worker and transports/
 services/fetcher-impersonate/          # Python one-request child, requirements.txt
 services/pipeline/src/{sources,newness,extract} # library facades, no daemon
 packages/core/src/                    # shared pure parsing, policy, types
-packages/db/src/                      # unchanged schema and crawler queries
+packages/db/src/                      # base schema, additive migrations, queries
 config/                               # sites, limits, transport profiles
 tools/simulator/                      # offline fixture server and validation
 fixtures/                             # synthetic saved pages
@@ -29,11 +44,12 @@ npm ci
 npm --prefix apps/dashboard ci
 npm run dashboard:build
 CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api # UI + API on 127.0.0.1:4318
-npm run dev                                       # crawler + inline pipeline
+npm run dev                                       # scheduler + inline pipeline
+npm run worker                                    # separate fetch worker
 npm run simulator                                 # optional loopback fake news site
 ```
 
-The pipeline stays inside the crawler process. Shared parsing lives in `packages/core`
+The pipeline stays inside the scheduler process. Shared parsing lives in `packages/core`
 because the dashboard also inspects saved responses. No service imports another service's
 source. Python is an on-demand child, never a daemon. Health remains `/api/health`.
 The mapper stays inside the existing worker to avoid a logic refactor.
@@ -44,13 +60,13 @@ The mapper stays inside the existing worker to avoid a logic refactor.
 
 ```sh
 npm ci                  # only for a fresh checkout
-npm start               # detached background process; returns to terminal
+npm start               # detached scheduler; worker runs separately
 npm run status          # per-site requests, parsing, fresh articles, errors
 tail -f logs/crawler.log # live JSON event stream; Ctrl-C only exits tail
 npm run stop            # graceful shutdown
 ```
 
-`npm run dev` runs in the foreground. Stop the background process before debugging.
+`npm run dev` runs the scheduler in the foreground. Stop the background process before debugging.
 Only one crawler may use a data directory. Restarts preserve the setup clock, request
 history, queues, deduplication, and collected data. Edits take effect after stop/start.
 The process survives closing the terminal, but does not auto-start after reboot.

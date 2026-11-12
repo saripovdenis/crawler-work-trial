@@ -12,6 +12,8 @@ import { sites } from '../../../../config/sites.js';
 import { discover, parseArticle } from '../../../../packages/core/src/parse.js';
 import { assertProbeWindow } from './probe-safety.js';
 
+if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='attempt_assignments'").get()) throw new Error('Standalone probes are disabled with durable scheduling; every request needs a claim');
+
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
 const headers = { 'User-Agent': 'ExaTrialCrawler/0.1', Accept: 'text/html,application/xml,application/rss+xml,*/*;q=0.5' };
 const allowed = new Set(['hoodline.com', 'eleconomista.es']);

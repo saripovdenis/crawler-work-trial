@@ -15,7 +15,7 @@ if (cmd === 'start') {
   else {
     mkdirSync('logs', { recursive: true });
     const log = openSync('logs/crawler.log', 'a');
-    const child = spawn(process.execPath, ['--import', 'tsx', 'services/crawler/src/loop/index.ts'], { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log], env: process.env });
+    const child = spawn(process.execPath, ['--import', 'tsx', 'services/crawler/src/scheduler/index.ts'], { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log], env: process.env });
     child.unref(); closeSync(log);
     await sleep(1500);
     if (!existsSync(lock)) throw new Error('Crawler did not start; inspect logs/crawler.log');
