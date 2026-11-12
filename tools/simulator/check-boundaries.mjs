@@ -16,6 +16,7 @@ export function violationsFor(path, source) {
   if (!transport && /(?:from|require\()\s*['"](?:node:)?http['"]/.test(source)
       && !/import\s*\{\s*createServer\s*\}\s*from\s*['"]node:http['"]/.test(source))
     errors.push(`${path}: HTTP client-capable import outside the fetcher`);
+  if (/services\/crawler\/src\/fetcher\/(?:remote-worker|index)\.ts$/.test(path) && /node:sqlite|packages\/db|\/scheduler\//.test(source)) errors.push(`${path}: fetch worker must not access SQLite or scheduler source`);
   if (python && /\b(?:sqlite3|sqlalchemy|psycopg|DatabaseSync)\b/.test(source)) errors.push(`${path}: Python transport must not access a database`);
   for (const match of source.matchAll(/(?:from\s*|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g)) {
     if (!match[1].startsWith('.')) continue;

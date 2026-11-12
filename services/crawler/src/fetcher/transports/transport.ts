@@ -7,8 +7,9 @@ import { chromeSites } from '../../../../../config/profiles.js';
 export const usesChromeProfile = (url: string) => chromeSites.has(domainFor(url) || '');
 export const USER_AGENT = 'ExaTrialCrawler/0.1';
 
-export async function fetchResponse(url: string, headers: Record<string, string>, signal: AbortSignal): Promise<Response> {
-  if (!usesChromeProfile(url)) return fetch(url, {
+export async function fetchResponse(url: string, headers: Record<string, string>, signal: AbortSignal, dispatch?: { transport: 'node' | 'chrome136'; start_by: string }): Promise<Response> {
+  if (dispatch && Date.now() > Date.parse(dispatch.start_by)) throw new Error('Dispatch deadline expired');
+  if (!(dispatch ? dispatch.transport === 'chrome136' : usesChromeProfile(url))) return fetch(url, {
     redirect: 'manual', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
     headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xml,application/rss+xml,*/*;q=0.5', ...headers },
   });
@@ -30,6 +31,6 @@ export async function fetchResponse(url: string, headers: Record<string, string>
         } catch (e) { reject(e); }
       });
     child.stdin?.on('error', () => {}); // Child failure is reported by execFile.
-    child.stdin?.end(JSON.stringify({ url, profile: 'cffi-chrome', headers }));
+    child.stdin?.end(JSON.stringify({ url, profile: 'cffi-chrome', headers, start_by: dispatch?.start_by }));
   });
 }

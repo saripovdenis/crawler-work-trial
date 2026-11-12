@@ -2,6 +2,8 @@
 import base64
 import json
 import sys
+import time
+from datetime import datetime
 
 import curl_cffi
 from curl_cffi import requests
@@ -21,6 +23,8 @@ def receive(chunk):
 
 
 try:
+    if args.get("start_by") and time.time() > datetime.fromisoformat(args["start_by"].replace("Z", "+00:00")).timestamp():
+        raise ValueError("Dispatch deadline expired")
     with requests.Session(trust_env=False) as session:
         response = session.get(
             args["url"], impersonate="chrome136",

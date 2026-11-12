@@ -14,3 +14,15 @@ test('server boundaries pass and reject misplaced outbound calls and service imp
   assert.ok(violationsFor('services/crawler/src/loop/accident.ts', "import {x} from '../../../pipeline/src/index.js'").length);
   assert.ok(violationsFor('services/fetcher-impersonate/cffi-fetch.py', 'import sqlite3').length);
 });
+
+test('worker dependency graph cannot reach SQLite or scheduler implementation',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const visited=new Set<string>();
+  function visit(url:URL){
+    if(visited.has(url.href))return;visited.add(url.href);
+    const source=readFileSync(url,'utf8');
+    assert.doesNotMatch(source,/node:sqlite|packages\/db|\/scheduler\//,url.href);
+    for(const match of source.matchAll(/from\s*['"](\.[^'"]+)['"]/g))visit(new URL(match[1].replace(/\.js$/,'.ts'),url));
+  }
+  visit(new URL('../../services/crawler/src/fetcher/index.ts',import.meta.url));
+});

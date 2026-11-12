@@ -27,6 +27,7 @@ One JSON object on stdin; one JSON object on stdout; then exit:
 - `profile`: `cffi-chrome` enables default Chrome 136 headers; `cffi-crawler`
   disables defaults for diagnostics. Both retain the Chrome 136 network profile.
 - `headers`: optional caller headers, including conditional request headers.
+- `start_by`: optional UTC ISO timestamp. New workers provide it; Python rejects an expired dispatch before making any request. Legacy callers may omit it.
 
 Success (including HTTP error statuses):
 

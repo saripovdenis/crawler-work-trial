@@ -43,6 +43,10 @@ try:
         else:
             assert payload["status"] == status, payload
             assert base64.b64decode(payload["body"]) == (b"" if status == 304 else b"article")
+    expired = subprocess.run([sys.executable, str(Path(__file__).with_name("cffi-fetch.py"))],
+        input=json.dumps({"url": f"http://127.0.0.1:{server.server_port}/must-not-send", "profile": "cffi-chrome", "start_by": "2000-01-01T00:00:00Z"}),
+        capture_output=True, text=True, check=True, timeout=5)
+    assert "deadline" in json.loads(expired.stdout)["error"]
     assert [path for path, _ in seen] == ["/ok", "/redirect", "/cached", "/big"]
     for _, headers in seen:
         lower = {key.lower(): value for key, value in headers.items()}
