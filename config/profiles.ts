@@ -10,3 +10,10 @@ export const publicationProfiles: Record<string, {selector: string; attribute?: 
 
 // Verified Arc story JSON is archived in these publishers' article responses.
 export const arcContentHosts = new Set(['www.chosun.com', 'biz.chosun.com']);
+
+// Verified article containers in archived publisher pages. Restrict by both
+// configured domain and article path; listing/forum pages retain the fallback.
+export const articleBodyProfiles: Record<string, { path: RegExp; selector: string; remove: string }> = {
+  'sina.com.cn': {path: /\/doc-[\w]+\.shtml$/, selector: '#artibody', remove: 'script,style,noscript,.appendQr_wrap,.article-editor'},
+  'eastmoney.com': {path: /\/(?:a\/\d+|news\/\d+,\d+)\.html$/, selector: '#ContentBody', remove: 'script,style,noscript'},
+};

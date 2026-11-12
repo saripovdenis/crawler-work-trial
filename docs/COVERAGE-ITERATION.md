@@ -136,3 +136,27 @@ a long-term guarantee. The original request ledger and limits are preserved.
 The current external sample remains about 28% matched (27% matched and complete).
 The 50% goal is not achieved. A 615-response parsing backlog remains after the
 backfill load; continued clean-window measurement and coverage work are required.
+
+## Parsing throughput follow-up
+
+The 09:42 UTC snapshot still held 657 unprocessed responses; several successful
+fetches waited about 15 minutes. The public last-hour sample remained about 24%
+matched, so the coverage goal is still open.
+
+- Cache scheduler SQL and skip unchanged candidate/task writes. Manual replay of
+  3,063 archived links took 29.9 ms instead of 104.4 ms with identical final rows.
+- Use an explicit positive-priority index range after initial sampling. The BBC
+  queue lookup fell from about 2.1 ms to 0.19 ms on the copy, selecting the same row.
+- Process control responses promptly; share parsing between discovery and articles.
+  Recent articles take four of five article turns; the fifth drains older work.
+- Limit a stuck parser worker to 30 seconds, preserving the archived retry.
+  A truncated RSS body with no complete items now schedules a fresh budgeted poll.
+- Extract verified Sina/Eastmoney article containers directly. Archived examples
+  preserved metadata and removed only Sina page boilerplate, with much less CPU.
+- Keep today's/yesterday's dated news maps eligible. Follow the Sina rolling
+  page's archived JavaScript redirect; slow its obsolete URL.
+
+No request-limit, ledger, schema, provider-matching or coverage-denominator changes.
+Validation uses type checks, the static boundary check and manual archive/database
+inspection under the project's no-tests preference. Only the crawler needs restart.
+Sina's AIroll HTML remains a JavaScript shell without a verified archived API contract.
