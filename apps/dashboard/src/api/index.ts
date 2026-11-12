@@ -50,6 +50,7 @@ const server = createServer(async (req, res) => {
       }
       let result: unknown;
       if (url.pathname === "/api/reconciliation") result = coverage.get(url.searchParams);
+      else if (url.pathname === "/api/freshness") result = coverage.get(url.searchParams, Date.now(), true);
       else if (url.pathname === "/api/charts/parsing-quality") result = charts.parsingQuality(url.searchParams);
       else if (url.pathname === "/api/overview") result = observation.overview();
       else if (url.pathname === "/api/requests")
