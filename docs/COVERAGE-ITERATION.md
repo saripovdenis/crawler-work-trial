@@ -160,3 +160,19 @@ No request-limit, ledger, schema, provider-matching or coverage-denominator chan
 Validation uses type checks, the static boundary check and manual archive/database
 inspection under the project's no-tests preference. Only the crawler needs restart.
 Sina's AIroll HTML remains a JavaScript shell without a verified archived API contract.
+
+The first live follow-up recorded 390 assignments with zero dispatch failures or
+lease expiries, but the pending parse queue grew to 776; throughput is not solved.
+Further changes let controls progress while parsing and cancel parsing promptly
+on shutdown. Startup skips unchanged task-priority writes.
+
+Two expensive BioBio responses were category listings with placeholder text.
+Known `/lista/` routes no longer enter the article queue; existing queued listings
+are retired before spending budget. Downloaded listings retain metadata but do
+not run Readability or become articles. Other routes and the external denominator
+stay unchanged. Archived listing parsing fell from 175/155 ms to 19/17 ms;
+38 other archived outputs and a real BioBio article were unchanged.
+
+Hürriyet's homepage links its latest-news page; Eastmoney links current finance
+lists. These are now explicit sources under the existing budgets. Their live
+discovery yield still needs measurement. The dashboard and worker are not redeployed.

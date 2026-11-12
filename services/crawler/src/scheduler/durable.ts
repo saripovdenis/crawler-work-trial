@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import { sites } from '../../../../config/sites.js';
 import { chromeSites } from '../../../../config/profiles.js';
-import { domainFor, classify } from '../../../../packages/core/src/policy.js';
+import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
 import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
@@ -105,6 +105,12 @@ export class Scheduler {
           WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
           AND ${candidatePriority}
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,now,...orderParams);
+        if(candidate && isKnownListingUrl(candidate.url)) {
+          // Retire pre-existing navigation candidates without spending a request.
+          this.run("UPDATE candidates SET state='failed',last_error='Known listing route, not an article' WHERE url=?",candidate.url);
+          this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",candidate.id);
+          continue;
+        }
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
@@ -327,8 +333,23 @@ export class Scheduler {
       } catch(error) {this.processingFailure(a,error);}
     }
   }
+  private processControls(limit: number) {
+    const controls=this.all(`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
+      JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?
+      AND (r.error IS NOT NULL OR r.status IS NULL OR r.status<>200 OR t.purpose NOT IN ('article','discovery'))
+      ORDER BY a.request_id LIMIT ?`,this.clock(),limit);
+    for(const a of controls) {
+      try {
+        const task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!,value: Completion=JSON.parse(a.completion);
+        this.finishProcessing(a,task,value,value.error?'':this.readBody(value));
+      } catch(error) {this.processingFailure(a,error);}
+    }
+  }
   processAsync(): Promise<void> {
     if(this.closing) return Promise.resolve();
+    // These bounded synchronous completions can progress while the worker is
+    // parsing another archive. They never dispatch a network request.
+    this.processControls(8);
     if(this.processingJob) return this.processingJob;
     const a=this.nextProcessing();
     if(!a) return Promise.resolve();
@@ -350,19 +371,19 @@ export class Scheduler {
         }
         // Parsing and decompression above happen without holding a write lock.
         this.finishProcessing(a,task,value,body,parsed);
-      } catch(error) {this.processingFailure(a,error);}
+      } catch(error) {if(!this.closing)this.processingFailure(a,error);}
     })().finally(()=> {this.processingJob=undefined;if(!this.closing) setImmediate(()=>void this.processAsync().catch(error=>console.error('archive processing failed',error)));});
     return this.processingJob;
   }
   private nextProcessing(): Row | undefined {
     const now=this.clock();
-    // Cheap completions unblock robots, redirects and retry state immediately.
     const base=`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
-      JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?`;
-    const control=this.one(base+` AND (r.error IS NOT NULL OR r.status IS NULL OR r.status<>200
-      OR t.purpose NOT IN ('article','discovery')) ORDER BY a.request_id LIMIT 1`,now);
-    if(control)return control;
-    const discovery=()=>this.one(base+" AND t.purpose='discovery' ORDER BY a.request_id LIMIT 1",now);
+      JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?
+      AND r.status=200 AND r.error IS NULL`;
+    // Inspect a new source's first response promptly, then drain established
+    // sources in arrival order. This changes parsing order, never poll budgets.
+    const discovery=()=>this.one(base+` AND t.purpose='discovery'
+      ORDER BY coalesce((SELECT polls FROM sources WHERE url=t.url),0)=0 DESC,a.request_id LIMIT 1`,now);
     if(this.articlesSinceDiscovery>=3) {
       const a=discovery();
       if(a) {this.articlesSinceDiscovery=0;return a;}
@@ -377,8 +398,10 @@ export class Scheduler {
   }
   async close() {
     this.closing=true;
-    await this.processingJob;
-    await this.parser.close();
+    const current=this.processingJob;
+    // Cancel first: waiting for the parser watchdog could outlast systemd's
+    // shutdown deadline. An interrupted archive remains pending for restart.
+    await Promise.all([this.parser.close(),current]);
   }
   apply(task: Row, value: Completion, body: string, exports: {payload:string;fresh:boolean}[], parsed?: ParseResult) {
     const now=this.clock(), status=value.status!;

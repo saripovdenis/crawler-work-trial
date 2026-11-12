@@ -2,7 +2,7 @@ import { load, type CheerioAPI } from 'cheerio';
 import { XMLParser } from 'fast-xml-parser';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { dateIso, normalizeUrl, domainFor } from './policy.js';
+import { dateIso, normalizeUrl, domainFor, isKnownListingUrl } from './policy.js';
 import { sourcePriority } from '../../../config/discovery.js';
 import { publicationProfiles, arcContentHosts, articleBodyProfiles } from '../../../config/profiles.js';
 import type { Article } from './types.js';
@@ -110,7 +110,7 @@ export function discover(body: string, url: string, kind: string) {
   const add = (value: unknown, published: unknown = null) => {
     if (typeof value !== 'string') return;
     const next = normalizeUrl(value, url);
-    if (next) articles.push({ url: next, published: dateIso(published) });
+    if (next && !isKnownListingUrl(next)) articles.push({ url: next, published: dateIso(published) });
   };
   const source = (value: string, type: string) => {
     const next = normalizeUrl(value, url);
@@ -173,6 +173,7 @@ export function discover(body: string, url: string, kind: string) {
 
 export function parseArticle(body: string, url: string, discovered: number, hint: string | null): Article & { dateSource: string | null; isArticle: boolean; textSource: string | null } {
   const $ = load(body);
+  const listing=isKnownListingUrl(url);
   const meta = (key: string) => $(`meta[property="${key}"],meta[name="${key}"]`).first().attr('content')?.trim();
   let structured: any = {};
   function walk(value: any): void {
@@ -210,12 +211,12 @@ export function parseArticle(body: string, url: string, discovered: number, hint
   // Skip its DOM when all three outputs already come from explicit metadata.
   const completeStructured=!!(structuredBody && knownTitle && knownDescription);
   let readable;
-  if((publisherBody===null && !completeStructured) || (articleBody && (!knownTitle || !knownDescription))) {
+  if(!listing && ((publisherBody===null && !completeStructured) || (articleBody && (!knownTitle || !knownDescription)))) {
     const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
     try { readable = new Readability(dom.window.document).parse(); } finally { dom.window.close(); }
   }
-  const text = (publisherBody ?? (structuredBody || readable?.textContent || $('article').text() || '')).replace(/\s+/g, ' ').trim();
-  const textSource=publisher?'fusion.globalContent.content_elements':articleBody?articleBody.source:structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
+  const text = listing?'':(publisherBody ?? (structuredBody || readable?.textContent || $('article').text() || '')).replace(/\s+/g, ' ').trim();
+  const textSource=listing?null:publisher?'fusion.globalContent.content_elements':articleBody?articleBody.source:structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
   return {
     canonicalUrl: normalizeUrl($('link[rel="canonical"]').attr('href') || url, url) || url,
     discoveredAt: new Date(discovered).toISOString(), publishedAt: date?.[1] || null,
@@ -223,6 +224,6 @@ export function parseArticle(body: string, url: string, discovered: number, hint
     title: String(knownTitle || readable?.title || $('title').text()).trim(),
     description: knownDescription || readable?.excerpt || null,
     socialTags, text, textSource, dateSource: date?.[0] || null,
-    isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!publisher || !!hint,
+    isArticle: !listing && (!!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!publisher || !!hint),
   };
 }

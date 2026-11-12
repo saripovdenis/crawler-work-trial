@@ -36,6 +36,7 @@ export function syncTasks(db: DatabaseSync) {
     INSERT OR IGNORE INTO crawl_tasks(domain,url,purpose,priority,next_crawl_at,current_url)
       SELECT domain,url,'article',priority,next_attempt,url FROM candidates WHERE state='pending';
     UPDATE crawl_tasks SET priority=(SELECT priority FROM candidates WHERE candidates.url=crawl_tasks.url)
-      WHERE purpose='article' AND state='ready' AND EXISTS(SELECT 1 FROM candidates WHERE candidates.url=crawl_tasks.url);
+      WHERE purpose='article' AND state='ready'
+      AND priority<>(SELECT priority FROM candidates WHERE candidates.url=crawl_tasks.url);
   `);
 }

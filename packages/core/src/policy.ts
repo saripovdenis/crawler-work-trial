@@ -8,6 +8,12 @@ export function domainFor(url: string): string | undefined {
   } catch { return; }
 }
 
+// Verified publisher category/directory routes, never individual articles.
+// Keep this narrow: unrecognized routes still receive normal discovery/parsing.
+export function isKnownListingUrl(url: string): boolean {
+  return domainFor(url)==='biobiochile.cl' && /^\/lista(?:\/|$)/.test(new URL(url).pathname);
+}
+
 export function normalizeUrl(value: string, base?: string): string | undefined {
   try {
     const u = new URL(value, base);

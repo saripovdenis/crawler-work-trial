@@ -9,6 +9,10 @@ export const discoverySeeds = [
   { domain: 'sina.com.cn', url: 'https://news.sina.com.cn/airoll/index.shtml', kind: 'html' },
   { domain: 'indiatimes.com', url: 'https://timesofindia.indiatimes.com/', kind: 'html' },
   { domain: 'indiatimes.com', url: 'https://economictimes.indiatimes.com/', kind: 'html' },
+  // Current-news lists linked from the archived publisher homepages.
+  { domain: 'hurriyet.com.tr', url: 'https://www.hurriyet.com.tr/son-dakika-haberleri/', kind: 'html' },
+  { domain: 'eastmoney.com', url: 'http://finance.eastmoney.com/yaowen.html', kind: 'html' },
+  { domain: 'eastmoney.com', url: 'http://finance.eastmoney.com/news/cgnjj.html', kind: 'html' },
   // Advertised in BBC's already archived robots.txt, previously beyond first six.
   { domain: 'bbc.com', url: 'https://www.bbc.com/sitemaps/https-index-com-news.xml', kind: 'sitemap' },
 ] as const;
@@ -17,6 +21,11 @@ export function sourcePriority(url: string, kind: string, now = Date.now()): num
   let path: string;
   try {
     const parsed=new URL(url);path=parsed.pathname;
+    if (parsed.hostname==='www.hurriyet.com.tr' && path==='/son-dakika-haberleri/') return 100;
+    if (parsed.hostname==='finance.eastmoney.com' && ['/yaowen.html','/news/cgnjj.html'].includes(path)) return 100;
+    // The index lists legacy maps; all 200 URLs in these four archived children are dated October 2017.
+    if ((parsed.hostname==='www.eastmoney.com' && path==='/sitemap.xml')
+        || (parsed.hostname==='rss.eastmoney.com' && /^\/sitemaps\/(?:stock|finance|hk|forex)_sitemap\.xml\.gz$/.test(path))) return -100;
     // This legacy list now returns only a script redirect to /roll/c/51894.shtml.
     if(parsed.hostname==='finance.sina.com.cn' && path==='/roll/index.d.html')return -100;
   } catch { return -100; }
