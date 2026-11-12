@@ -1,5 +1,10 @@
 # External coverage reconciliation
 
+> Deployment policy: only current `master` through
+> `sudo /usr/local/sbin/deploy-exa-master`. Release-path commands below describe
+> historical deployments and are retired. See [deployment documentation](../deploy/README.md).
+
+
 `services/monitor` runs independently of the crawler and dashboard. It polls each
 configured domain every 10 minutes, staggered by six seconds per provider. Two
 bounded request slots prevent one slow provider from blocking all others. A slow

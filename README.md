@@ -1,5 +1,10 @@
 # Crawler work trial
 
+**Production deploys only `master`.** Merge feature work first, then run
+`sudo /usr/local/sbin/deploy-exa-master` on the VM. Never deploy branch archives.
+See [release safeguards and rollback](deploy/README.md).
+
+
 TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler needs no API keys; optional external reconciliation uses provider keys.
 
 ## Current runtime: durable scheduler + fetch worker

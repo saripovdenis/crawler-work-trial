@@ -1,5 +1,10 @@
 # Durable scheduler milestone
 
+> Deployment policy: only current `master` through
+> `sudo /usr/local/sbin/deploy-exa-master`. Release-path commands below describe
+> historical deployments and are retired. See [deployment documentation](../deploy/README.md).
+
+
 The former `exa-crawler` unit now runs the Node scheduler and archived-response pipeline.
 `exa-fetch-worker` is a second Node process with four concurrent slots. It never opens
 SQLite. Python remains a one-request Chrome 136 subprocess. The dashboard/Caddy are unchanged.
