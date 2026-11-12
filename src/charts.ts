@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
-import { sites } from './sites.js';
+import { sites } from '../config/sites.js';
 
 export const chartWindows = { '5m': 300_000, '30m': 1800_000, '1h': 3600_000, '3h': 10800_000, '1d': 86400_000, '1w': 604800_000 } as const;
 type Window = keyof typeof chartWindows;

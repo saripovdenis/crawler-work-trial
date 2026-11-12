@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { domainFor } from './policy.js';
+import { domainFor } from '../packages/core/src/policy.js';
 
 // Intentionally hardcoded. All subdomains use the same transport and budget.
 const chromeSites = new Set(['hoodline.com', 'eleconomista.es']);

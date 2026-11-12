@@ -32,7 +32,7 @@ if (cmd === 'start') {
   else console.log('Not running');
 } else if (cmd === 'status') {
   console.log(running ? `Running: PID ${pid}` : 'Not running');
-  const { summary, db } = await import('./store.js');
+  const { summary, db } = await import('../packages/db/src/store.js');
   const status = summary();
   console.log(`Started: ${status.firstStartedAt || 'never'} | Heartbeat: ${status.heartbeat || 'none'}`);
   console.table(status.sites); console.table(status.classifications);

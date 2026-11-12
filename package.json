@@ -12,7 +12,7 @@
     "start": "tsx src/cli.ts start",
     "stop": "tsx src/cli.ts stop",
     "status": "tsx src/cli.ts status",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test src/*.test.ts packages/core/src/*.test.ts",
     "dashboard:api": "tsx src/api.ts",
     "dashboard:build": "npm --prefix dashboard run build"
   },

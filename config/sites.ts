@@ -1,4 +1,4 @@
-import type { SiteConfig } from './types.js';
+import type { SiteConfig } from '../packages/core/src/types.js';
 
 // Each domain and all of its subdomains share one request budget.
 export const setup = { durationSeconds: 600, requestsPerSecond: 1 } as const;

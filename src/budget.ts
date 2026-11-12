@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { nextAllowed } from './policy.js';
+import { nextAllowed } from '../packages/core/src/policy.js';
 
 // Transport deadlines are <=25s. An unfinished reservation remains charged after
 // a crash; allow 30s for a possible in-flight request before starting the spacing.

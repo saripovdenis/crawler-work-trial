@@ -1,4 +1,4 @@
-import { sites, setup } from './sites.js';
+import { sites, setup } from '../../../config/sites.js';
 
 export function domainFor(url: string): string | undefined {
   try {

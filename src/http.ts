@@ -4,9 +4,9 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createRequire } from 'node:module';
-import { db, get, run, dataDir } from './store.js';
-import { domainFor } from './policy.js';
-import { sites } from './sites.js';
+import { db, get, run, dataDir } from '../packages/db/src/store.js';
+import { domainFor } from '../packages/core/src/policy.js';
+import { sites } from '../config/sites.js';
 import { reserveSlot } from './budget.js';
 import { fetchResponse, USER_AGENT } from './transport.js';
 

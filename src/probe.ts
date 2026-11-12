@@ -5,11 +5,11 @@ import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { db, get, run, dataDir } from './store.js';
-import { domainFor } from './policy.js';
+import { db, get, run, dataDir } from '../packages/db/src/store.js';
+import { domainFor } from '../packages/core/src/policy.js';
 import { reserveSlot } from './budget.js';
-import { sites } from './sites.js';
-import { discover, parseArticle } from './parse.js';
+import { sites } from '../config/sites.js';
+import { discover, parseArticle } from '../packages/core/src/parse.js';
 import { assertProbeWindow } from './probe-safety.js';
 
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
