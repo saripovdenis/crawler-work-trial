@@ -82,10 +82,12 @@ test(`${endpoint} HTTP endpoint supports all windows, validates filters and neve
     });
     const get = (params: string) =>
       fetch(`http://127.0.0.1:${port}/api/${endpoint}?${params}`);
-    for (const window of ["1h", "24h", "7d"]) {
+    for (const window of ["10m", "1h", "24h", "7d"]) {
       const r = await get("window=" + window);
       assert.equal(r.status, 200);
       const body = await r.json();
+      assert.equal(body.window, window);
+      if (window === "10m") assert.equal(body.windowEnd - body.windowStart, 600000);
       assert.equal(body.summary.percentage, 100);
       assert.equal(body.cadenceMinutes, 10);
       if (endpoint === "freshness") {

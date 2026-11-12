@@ -430,3 +430,36 @@ test('confirmed index pages are excluded transparently; unknown result types sti
     assert.equal(s.db.prepare('SELECT count(*) n FROM external_sightings').get()!.n,2);
   }finally{db.close();s.db.close();f.close();}
 });
+
+test('ten-minute coverage uses publication boundaries and keeps unknown dates and old observations out', () => {
+  const f = fixture(), store = new MonitorStore(f.path), crawlerPath = join(f.dir, 'crawler.sqlite');
+  const db = new DatabaseSync(crawlerPath);
+  try {
+    db.exec('CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,discovered INTEGER,fetched INTEGER)');
+    store.configure(providerConfig({}).filter(c => c.id === 'google'), now - 1000);
+    const job = store.claim(now - 1000)!;
+    job.site = 'bbc.com';
+    store.success(job, [
+      sighting('bbc.com', url + '/start', 'Story at inclusive start boundary', now - 600000)!,
+      sighting('bbc.com', url + '/inside', 'Story inside the selected window', now - 1)!,
+      sighting('bbc.com', url + '/before', 'Old story newly observed now', now - 600001)!,
+      sighting('bbc.com', url + '/end', 'Story at exclusive end boundary', now)!,
+      sighting('bbc.com', url + '/unknown', 'Story without a publication date', null)!,
+    ], 5, false, null, now - 500);
+    const reader = new CoverageReader(f.path, crawlerPath);
+    const result = reader.get(new URLSearchParams('window=10m'), now);
+    assert.equal(result.windowStart, now - 600000);
+    assert.equal(result.windowEnd, now);
+    assert.equal(result.windowTimestamp, 'provider_published_at');
+    assert.equal(result.summary?.total, 2);
+    assert.deepEqual(result.groups.map(g => g.url).sort(), [url + '/inside', url + '/start']);
+    assert.equal(result.unknownPublication, 1);
+    const sql = store.db.prepare('SELECT count(*) n FROM external_sightings WHERE provider_published_at >= ? AND provider_published_at < ?').get(now - 600000, now)!;
+    assert.equal(result.summary?.total, sql.n);
+    assert.equal(reader.get(new URLSearchParams('window=1h'), now).summary?.total, 3);
+    assert.equal(reader.get(new URLSearchParams('window=10m&site=sina.com.cn'), now).summary?.percentage, null);
+    assert.equal(store.db.prepare('SELECT count(*) n FROM provider_runs').get()!.n, 1);
+  } finally {
+    db.close(); store.db.close(); f.close();
+  }
+});

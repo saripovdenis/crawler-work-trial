@@ -28,12 +28,17 @@ match. Google wrapper URLs are never followed: Google is matched by title/date.
 This heuristic can miss changed headlines and confuse repeated headlines; URL
 and probable-title counts are shown separately.
 
-The default window is the last **publication hour**. The 1h/24h/7d selector uses
+The default window is the last **publication hour**. The 10m/1h/24h/7d selector uses
 `external_sightings.provider_published_at`, not first observation. Old stories
 newly indexed today no longer enter the last-hour sample. Unknown publication
 dates are excluded and counted explicitly. First/last observations and each
 provider's original timestamps remain available in the timing details. All times
 are UTC. Publication is provider-reported, not proof of freshness or indexing time.
+
+The last-10-minutes view is provisional: the provider polling interval is also
+10 minutes, and indexing delays or later polls can change the sample. Selecting
+it only reads stored data; it does not trigger calls or consume provider quota.
+The default remains one hour.
 
 New unmatched items receive a 30-minute grace period. Afterwards they appear as
 “Not matched,” not as proven misses. Filters and 30-second UI refreshes only read
