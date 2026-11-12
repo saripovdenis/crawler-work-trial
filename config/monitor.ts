@@ -1,6 +1,6 @@
 export const providerIds = ["google", "exa"] as const;
 export type ProviderId = (typeof providerIds)[number];
-export const pollInterval = 30 * 60_000;
+export const pollInterval = 10 * 60_000;
 export const editions: Record<
   string,
   { hl: string; gl: string; ceid: string }
@@ -30,7 +30,10 @@ export function providerConfig(env: NodeJS.ProcessEnv = process.env) {
   return providerIds.map((id) => ({
     id,
     key: id === "exa" ? env.EXA_API_KEY : undefined,
-    daily: cap(`MONITOR_${id.toUpperCase()}_DAILY_LIMIT`, 1000),
+    daily: cap(
+      `MONITOR_${id.toUpperCase()}_DAILY_LIMIT`,
+      id === "google" ? 3000 : 1000,
+    ),
     lifetime: cap(
       `MONITOR_${id.toUpperCase()}_TOTAL_LIMIT`,
       id === "exa" ? 1000 : 0,

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { providerConfig } from "../../../config/monitor.js";
+import { providerConfig, pollInterval } from "../../../config/monitor.js";
 import { MonitorStore } from "../../../packages/reconciliation/src/store.js";
 import { acquireLock } from "../../../packages/protocol/src/files.js";
 import { collect } from "./providers.js";
@@ -13,7 +13,9 @@ store.configure(configs);
 let stopped = false;
 for (const event of ["SIGINT", "SIGTERM"])
   process.on(event, () => (stopped = true));
-console.log("Reconciler started; provider cadence 30 minutes");
+console.log(
+  `Reconciler started; provider cadence ${pollInterval / 60000} minutes`,
+);
 async function worker() {
   try {
     while (!stopped) {

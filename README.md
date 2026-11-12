@@ -60,7 +60,7 @@ The mapper stays inside the existing worker to avoid a logic refactor.
 
 ## External coverage
 
-`npm run monitor` polls external news indexes every 30 minutes. Open `/reconciliation`
+`npm run monitor` polls external news indexes every 10 minutes. Open `/reconciliation`
 for provider-sample coverage, unmatched stories, quotas and recent calls. Credentials
 belong in private `.env.monitor`. See [matching, limits and deployment](docs/RECONCILIATION.md).
 

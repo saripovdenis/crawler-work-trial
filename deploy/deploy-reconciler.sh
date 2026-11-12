@@ -2,6 +2,12 @@
 set -euo pipefail
 release=$(realpath "${1:?Usage: sudo bash deploy/deploy-reconciler.sh /opt/exa-crawler/reconcile-COMMIT}")
 [[ "$release" =~ ^/opt/exa-crawler/reconcile-[a-zA-Z0-9]+$ ]] || exit 1
+units=(exa-crawler exa-observatory)
+case "${2:-}" in
+  "") ;;
+  --dashboard-monitor-only) units=(exa-observatory) ;;
+  *) echo "Unknown deployment mode" >&2; exit 1 ;;
+esac
 cd "$release"
 test -s /etc/exa-reconciler.env
 test -s apps/dashboard/dist/index.html
@@ -11,7 +17,7 @@ npm run check:boundaries
 # Run the full offline suite before packaging; avoid competing with the live crawler here.
 install -d -o exa-crawler -g exa-crawler -m 0700 /var/lib/exa-crawler/reconciliation
 mkdir -p deploy/previous-units
-for unit in exa-crawler exa-observatory; do
+for unit in "${units[@]}"; do
   cp "/etc/systemd/system/$unit.service" deploy/previous-units/
   # Preserve existing limits, ports and hardening; only change the code path and DB reference.
   sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$release|" -e '/^Environment=RECONCILER_DB=/d' \
@@ -20,19 +26,25 @@ for unit in exa-crawler exa-observatory; do
 done
 if test -f /etc/systemd/system/exa-reconciler.service; then cp /etc/systemd/system/exa-reconciler.service deploy/previous-units/; fi
 sed "s|/opt/exa-crawler/reconcile-v1|$release|g" deploy/exa-reconciler.service > deploy/exa-reconciler.rendered.service
-systemd-analyze verify deploy/exa-crawler.rendered.service deploy/exa-observatory.rendered.service deploy/exa-reconciler.rendered.service
-for unit in exa-crawler exa-observatory exa-reconciler; do
+rendered=(deploy/exa-reconciler.rendered.service)
+for unit in "${units[@]}"; do rendered+=("deploy/$unit.rendered.service"); done
+systemd-analyze verify "${rendered[@]}"
+for unit in "${units[@]}" exa-reconciler; do
   install -m 0644 "deploy/$unit.rendered.service" "/etc/systemd/system/$unit.service"
 done
 python3 - <<'BACKUP'
-import sqlite3
+import sqlite3, os
 source=sqlite3.connect('file:/var/lib/exa-crawler/data/crawler.sqlite?mode=ro',uri=True)
 target=sqlite3.connect('before-reconciler.sqlite');source.backup(target);target.close();source.close()
+monitor='/var/lib/exa-crawler/reconciliation/reconciler.sqlite'
+if os.path.exists(monitor):
+    source=sqlite3.connect('file:'+monitor+'?mode=ro',uri=True)
+    target=sqlite3.connect('before-monitor.sqlite');source.backup(target);target.close();source.close()
 BACKUP
 systemctl daemon-reload
 # Scheduler restart does not stop the worker. Durable receipts survive the handoff.
 # No schema change, backfill, budget reset, or change to the worker's release.
-systemctl restart exa-crawler exa-observatory
+systemctl restart "${units[@]}"
 systemctl enable exa-reconciler
 systemctl restart exa-reconciler
 # Existing scheduler startup scans can take over 20 seconds on the small VM.

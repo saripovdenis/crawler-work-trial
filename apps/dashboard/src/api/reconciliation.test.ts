@@ -14,11 +14,13 @@ test("reconciliation HTTP endpoint supports all windows, validates filters and n
   const dir = mkdtempSync(join(tmpdir(), "coverage-api-")),
     db = new DatabaseSync(join(dir, "crawler.sqlite"));
   db.exec(
-    "CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,fetched INTEGER)",
+    "CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,fetched INTEGER,discovered INTEGER)",
   );
   const now = Date.now(),
     url = "https://bbc.com/news/test";
-  db.prepare("INSERT INTO articles VALUES (?,?,?,?,?,?)").run(
+  db.prepare(
+    "INSERT INTO articles(canonical_url,domain,published,classification,payload,fetched) VALUES (?,?,?,?,?,?)",
+  ).run(
     url,
     "bbc.com",
     new Date(now - 1000).toISOString(),
@@ -84,18 +86,37 @@ test("reconciliation HTTP endpoint supports all windows, validates filters and n
       assert.equal(r.status, 200);
       const body = await r.json();
       assert.equal(body.summary.percentage, 100);
+      assert.equal(body.cadenceMinutes, 10);
+      assert.equal(body.groups[0].crawler_parsed_at, now - 500);
+      assert.equal(body.groups[0].crawler_fetch_finished_at, null);
+      assert.equal(body.groups[0].provider_timings[0].published_at, now - 1000);
+      assert.equal(body.groups[0].provider_timings[0].observed_at, now - 500);
       assert.equal(body.matrix.length, 20);
       assert.equal(
         body.matrix.find((r: any) => r.site === "sina.com.cn").percentage,
         null,
       );
     }
-    for (const params of ["window=wrong", "site=evil.com", "provider=unknown"])
+    for (const params of [
+      "window=wrong",
+      "site=evil.com",
+      "provider=unknown",
+      "matches=bad",
+      "page=0",
+      "page=NaN",
+      "page=1.5",
+    ])
       assert.equal((await get(params)).status, 400);
     assert.equal(
       (await (await get("provider=exa")).json()).summary.percentage,
       null,
     );
+    const matched = await (await get("matches=matched")).json();
+    const unmatched = await (await get("matches=unmatched")).json();
+    assert.equal(matched.groups.length, 1);
+    assert.equal(unmatched.groups.length, 0);
+    assert.equal(unmatched.summary.percentage, 100);
+    assert.equal((await (await get("page=2")).json()).groups.length, 0);
     assert.equal(
       monitor.db.prepare("SELECT count(*) n FROM provider_runs").get()!.n,
       1,

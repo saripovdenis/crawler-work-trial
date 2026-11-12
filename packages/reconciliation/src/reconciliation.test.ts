@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { MonitorStore } from "./store.js";
-import { providerConfig } from "../../../config/monitor.js";
+import { providerConfig, pollInterval } from "../../../config/monitor.js";
 import { sighting, titleKey, urlKey } from "./identity.js";
 import { matchSightings, CoverageReader } from "./view.js";
 const now = Date.parse("2026-11-12T12:00:00Z");
@@ -145,9 +145,11 @@ test("coverage agrees with SQL, handles all filters, excludes pending/failures, 
     db = new DatabaseSync(crawlerPath);
   try {
     db.exec(
-      "CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT);CREATE TABLE candidates(url TEXT,state TEXT)",
+      "CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,discovered INTEGER,fetched INTEGER);CREATE TABLE candidates(url TEXT,state TEXT)",
     );
-    db.prepare("INSERT INTO articles VALUES (?,?,?,?,?)").run(
+    db.prepare(
+      "INSERT INTO articles(canonical_url,domain,published,classification,payload) VALUES (?,?,?,?,?)",
+    ).run(
       url,
       "bbc.com",
       new Date(now - 3600000).toISOString(),
@@ -293,6 +295,87 @@ test("only Google and Exa are configured; retired provider history cannot restar
         .prepare("SELECT count(*) n FROM provider_runs WHERE provider='gdelt'")
         .get()!.n,
       1,
+    );
+  } finally {
+    store.db.close();
+    f.close();
+  }
+});
+
+test("ten-minute cadence advances old schedules without resetting quota or cooldown", () => {
+  const f = fixture(),
+    store = new MonitorStore(f.path);
+  const config = providerConfig({}).filter((c) => c.id === "google");
+  try {
+    assert.equal(pollInterval, 600000);
+    assert.equal(config[0].daily, 3000);
+    assert.equal(
+      providerConfig({ EXA_API_KEY: "test" }).find((c) => c.id === "exa")!
+        .lifetime,
+      1000,
+    );
+    store.configure(config, now);
+    const job = store.claim(now)!;
+    store.success(job, [], 0, false, null, now + 1000);
+    store.db
+      .prepare("UPDATE provider_schedule SET next_poll=? WHERE site=?")
+      .run(now + 1800000, job.site);
+    store.db
+      .prepare("UPDATE provider_schedule SET next_poll=? WHERE site<>?")
+      .run(now + 86400000, job.site);
+    store.db.prepare("UPDATE provider_state SET next_call=?").run(now + 700000);
+    store.configure(config, now + 100000);
+    assert.equal(
+      store.db
+        .prepare("SELECT next_poll FROM provider_schedule WHERE site=?")
+        .get(job.site)!.next_poll,
+      now + 600000,
+    );
+    assert.equal(store.claim(now + 600000), null);
+    assert.ok(store.claim(now + 700000));
+    assert.equal(
+      store.db.prepare("SELECT sum(quota_used) n FROM provider_runs").get()!.n,
+      2,
+    );
+  } finally {
+    store.db.close();
+    f.close();
+  }
+});
+
+test("provider observations preserve each first timestamp and publication across repeated polls", () => {
+  const f = fixture(),
+    store = new MonitorStore(f.path);
+  try {
+    store.configure(providerConfig({ EXA_API_KEY: "test" }), now);
+    const job = store.claim(now)!;
+    store.success(job, [item], 1, false, null, now + 1000);
+    store.success(
+      { ...job, id: job.id + 100 },
+      [{ ...item, provider_published_at: now + 100000 }],
+      1,
+      false,
+      null,
+      now + 600000,
+    );
+    const row = store.db.prepare("SELECT * FROM external_sightings").get()!;
+    assert.equal(row.provider_published_at, item.provider_published_at);
+    assert.equal(row.observed_at, now + 1000);
+    assert.equal(row.last_observed_at, now + 600000);
+    assert.equal(row.run_id, job.id);
+    const other = {
+      ...row,
+      id: 2,
+      provider: "exa",
+      observed_at: now + 2000,
+      provider_published_at: now - 3000000,
+    };
+    const groups = matchSightings([{ ...row, provider: "google" }, other], []);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].provider_timings.length, 2);
+    assert.deepEqual(
+      groups[0].provider_timings.map((t) => t.published_at),
+      [item.provider_published_at, now - 3000000],
     );
   } finally {
     store.db.close();

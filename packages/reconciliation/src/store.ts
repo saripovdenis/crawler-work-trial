@@ -52,6 +52,16 @@ export class MonitorStore {
           )
           .run(c.id, site.domain, now + i * 6000),
       );
+      // Apply a shorter cadence from the last charged attempt, never from restart.
+      // Keep provider cooldowns and all quota reservations intact.
+      this.db
+        .prepare(
+          `UPDATE provider_schedule SET next_poll=min(next_poll,
+        coalesce((SELECT max(started_at) FROM provider_runs r
+          WHERE r.provider=provider_schedule.provider AND r.site=provider_schedule.site)+?,next_poll))
+        WHERE provider=?`,
+        )
+        .run(pollInterval, c.id);
     }
     this.db
       .prepare(

@@ -1,7 +1,7 @@
 # External coverage reconciliation
 
 `services/monitor` runs independently of the crawler and dashboard. It polls each
-configured domain every 30 minutes, staggered by six seconds per provider. Two
+configured domain every 10 minutes, staggered by six seconds per provider. Two
 bounded request slots prevent one slow provider from blocking all others. A slow
 round can finish late; the dashboard exposes each call and its timestamps.
 
@@ -33,7 +33,7 @@ for title matching. All persisted timestamps and display times are UTC.
 New unmatched items receive a 30-minute grace period. Afterwards they appear as
 “Not matched,” not as proven misses. Filters and 30-second UI refreshes only read
 saved data. The API caches results for 15 seconds, limits comparison to 50,000
-sightings (flagging truncation) and displays at most 200 unmatched/recent records.
+sightings (flagging truncation) and paginates articles in groups of 50. `matches=all|matched|unmatched` and `page=1..1000` select the article list without changing summary counts.
 
 ## Providers and limits
 
@@ -51,11 +51,11 @@ Results are filtered to the exact publication window locally.
 The lookback overlaps the last success by one hour, capped at 24 hours after an
 outage. Google uses a rounded-up hour lookback and remains best effort.
 
-20 domains × 48 polls/day = **960 calls/day/provider**. Exa's 1,000-call cap
-protects this initial trial; it does not automatically buy more credits. Current account quotas and
+20 domains × 144 polls/day = **2,880 calls/day/provider**. Exa's 1,000-call cap
+lasts about 8 hours 20 minutes from zero usage and protects this initial trial; it does not automatically buy more credits. Current account quotas and
 pricing must be checked before raising these limits.
 
-Daily defaults are 1,000 calls per rolling 24 hours. Override with
+Daily defaults are 3,000 Google calls and 1,000 Exa calls per rolling 24 hours. Override with
 `MONITOR_<PROVIDER>_DAILY_LIMIT` or `MONITOR_<PROVIDER>_TOTAL_LIMIT`, where PROVIDER
 is `GOOGLE` or `EXA`. A zero daily limit disables
 calls; a zero total limit means no lifetime cap. Lifetime usage counts all
@@ -113,7 +113,10 @@ install credentials in `/etc/exa-reconciler.env` (root-owned 0600), then run
 `sudo bash deploy/deploy-reconciler.sh /opt/exa-crawler/reconcile-COMMIT`.
 The script preserves active unit settings, updates scheduler/API code, and adds
 `exa-reconciler`. The existing worker, Caddy, ports and URLs remain unchanged.
-The scheduler/API each restart once. No migration or budget reset is needed.
+The scheduler/API each restart once by default. Pass `--dashboard-monitor-only`
+for monitor/UI-only changes: restart only the dashboard and reconciler, preserving
+scheduler and worker PIDs. Both SQLite databases are backed up first.
+No migration or budget reset is needed.
 Roll back by restoring the saved units in the release's `deploy/previous-units`
 and restarting them; stop the reconciler if reverting the feature entirely.
 
@@ -125,3 +128,43 @@ retained in the same ledger shipped to production.
 
 Source: [Exa search](https://exa.ai/docs/reference/search).
 Google RSS is unofficial and may change.
+
+## Article timing API
+
+`GET /api/reconciliation?window=24h&matches=matched&page=1` returns saved evidence;
+it does not call a provider. `groups[].provider_timings[]` retains each provider's
+own `sighting_id`, `url`, `published_at`, `observed_at`, `last_observed_at`,
+`first_run_id`, `first_poll_started_at`, and `first_poll_finished_at`. Publication,
+first observation and first run are immutable after insertion; repeated polls only
+advance last observation. Existing historical sightings already contain this evidence.
+No provider payload or API key is sent to publishers.
+
+Neither current provider adapter supplies exact index-entry time:
+`provider_first_seen_at` stays null. `observed_at` is an upper bound on when the
+provider had that item, not proof it appeared since the previous poll. Ranking,
+truncation, errors and indexing delays make absent results inconclusive. The
+10-minute cadence improves observation resolution but does not guarantee it.
+
+Matched groups expose:
+- `crawler_fetch_finished_at`: `attempt_assignments.completion.finished_at` from
+  the worker, linked through its successful article request and original task URL.
+  This excludes redirects, failed requests, audits and pending parses. Legacy
+  requests use `requests.finished`, labeled `legacy_request_finished`; missing
+  evidence stays null. The durable scheduler's `requests.finished` is receipt
+  arrival time and is deliberately not used as network finish.
+- `crawler_parsed_at`: `articles.fetched`, when parsing was recorded.
+- `crawler_published_at`: publication parsed from the article.
+- `crawler_discovered_at`: the existing crawler discovery field, unchanged.
+- `crawler_request_id` and `crawler_fetch_time_source`: traceable provenance.
+
+Each provider timing includes `fetch_minus_published_ms` and
+`fetch_minus_observed_ms`. They are signed, null when either timestamp is unknown,
+and are not a claim about which index was faster. All API times are UTC epoch
+milliseconds; the UI renders UTC. Title matches remain explicitly probable.
+
+At the currently documented $7 per 1,000 auto searches, an uncapped 10-minute
+Exa schedule would cost about $20.16/day. The 1,000-call lifetime cap is unchanged;
+this change does not enable purchases or reset charged calls. Google has no
+paid key here; RSS availability remains best effort. On restart, persisted due
+times are shortened to no later than last charged attempt + 10 minutes, preserving
+cooldowns and the six-second spacing between calls.

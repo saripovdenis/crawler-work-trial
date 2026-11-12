@@ -1,9 +1,24 @@
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { sites } from "../../../config/sites.js";
-import { providerIds } from "../../../config/monitor.js";
-import { urlKey, titleKey } from "./identity.js";
+import { providerIds, pollInterval } from "../../../config/monitor.js";
+import { urlKey, titleKey, date } from "./identity.js";
+import { attachFetchTiming } from "./timing.js";
 type Row = Record<string, any>;
+export type ProviderTiming = {
+  sighting_id: number;
+  provider: string;
+  url: string;
+  published_at: number | null;
+  provider_first_seen_at: number | null;
+  observed_at: number;
+  last_observed_at: number;
+  first_run_id: number;
+  first_poll_started_at: number | null;
+  first_poll_finished_at: number | null;
+  fetch_minus_observed_ms: number | null;
+  fetch_minus_published_ms: number | null;
+};
 export type Group = {
   key: string;
   site: string;
@@ -17,6 +32,17 @@ export type Group = {
   article_url: string | null;
   incomplete: boolean;
   ambiguous: boolean;
+  provider_timings: ProviderTiming[];
+  crawler_source_url: string | null;
+  crawler_published_at: number | null;
+  crawler_discovered_at: number | null;
+  crawler_parsed_at: number | null;
+  crawler_fetch_finished_at: number | null;
+  crawler_fetch_time_source:
+    | "worker_receipt"
+    | "legacy_request_finished"
+    | null;
+  crawler_request_id: number | null;
   audit?: { state: string; status: number | null; error: string | null };
 };
 export function matchSightings(rows: Row[], articles: Row[]): Group[] {
@@ -74,7 +100,22 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
       if (same.length === 1) key = same[0].key;
     }
     const current = groups.get(key);
+    const timing: ProviderTiming = {
+      sighting_id: row.id,
+      provider: row.provider,
+      url: row.url_raw,
+      published_at: row.provider_published_at ?? null,
+      provider_first_seen_at: row.provider_first_seen_at ?? null,
+      observed_at: row.observed_at,
+      last_observed_at: row.last_observed_at ?? row.observed_at,
+      first_run_id: row.run_id,
+      first_poll_started_at: row.first_poll_started_at ?? null,
+      first_poll_finished_at: row.first_poll_finished_at ?? null,
+      fetch_minus_observed_ms: null,
+      fetch_minus_published_ms: null,
+    };
     if (current) {
+      current.provider_timings.push(timing);
       if (!current.providers.includes(row.provider))
         current.providers.push(row.provider);
       current.observed_at = Math.min(current.observed_at, row.observed_at);
@@ -94,6 +135,14 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
       article_url: article?.canonical_url || null,
       incomplete: article?.classification === "incomplete",
       ambiguous,
+      provider_timings: [timing],
+      crawler_source_url: article?.source_url || null,
+      crawler_published_at: date(article?.published),
+      crawler_discovered_at: article?.discovered ?? null,
+      crawler_parsed_at: article?.fetched ?? null,
+      crawler_fetch_finished_at: null,
+      crawler_fetch_time_source: null,
+      crawler_request_id: null,
     };
     groups.set(key, group);
     const titleGroupKey = row.site + "|" + row.title_key;
@@ -116,14 +165,20 @@ export class CoverageReader {
   get(params: URLSearchParams, now = Date.now()) {
     const window = params.get("window") || "24h",
       site = params.get("site") || "",
-      provider = params.get("provider") || "";
+      provider = params.get("provider") || "",
+      matches = params.get("matches") || "all",
+      page = Number(params.get("page") || 1);
     if (
       !Object.hasOwn(windows, window) ||
       (site && !sites.some((s) => s.domain === site)) ||
-      (provider && !providerIds.includes(provider as any))
+      (provider && !providerIds.includes(provider as any)) ||
+      !["all", "matched", "unmatched"].includes(matches) ||
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 1000
     )
       throw new Error("Invalid reconciliation filter");
-    const key = JSON.stringify([window, site, provider]);
+    const key = JSON.stringify([window, site, provider, matches, page]);
     const cached = this.cached.get(key);
     if (cached && now - cached.at < 15000) return cached.value;
     const value = this.query(
@@ -131,6 +186,8 @@ export class CoverageReader {
       site,
       provider,
       now,
+      matches,
+      page,
     );
     if (this.cached.size > 100) this.cached.clear();
     this.cached.set(key, { at: now, value });
@@ -141,6 +198,8 @@ export class CoverageReader {
     site: string,
     provider: string,
     now: number,
+    matches = "all",
+    page = 1,
   ) {
     const start = now - windows[window];
     const base = {
@@ -149,7 +208,10 @@ export class CoverageReader {
       windowEnd: now,
       generatedAt: now,
       sites: sites.map((s) => s.domain),
-      cadenceMinutes: 30,
+      cadenceMinutes: pollInterval / 60000,
+      matches,
+      page,
+      pageSize: 50,
     };
     if (!existsSync(this.monitorPath))
       return {
@@ -162,6 +224,8 @@ export class CoverageReader {
         runs: [] as Row[],
         truncated: false,
         heartbeat: null,
+        groupCount: 0,
+        pageCount: 0,
       };
     const monitor = new DatabaseSync(this.monitorPath, { readOnly: true }),
       crawler = new DatabaseSync(this.crawlerPath, { readOnly: true });
@@ -170,12 +234,14 @@ export class CoverageReader {
       crawler.exec("PRAGMA query_only=ON;PRAGMA busy_timeout=2000");
       const rows = monitor
         .prepare(
-          `SELECT * FROM external_sightings WHERE provider IN ('google','exa') AND observed_at>=? AND observed_at<? AND (?='' OR site=?) AND (?='' OR provider=?) ORDER BY observed_at DESC LIMIT 50001`,
+          `SELECT s.*,r.started_at first_poll_started_at,r.finished_at first_poll_finished_at
+          FROM external_sightings s LEFT JOIN provider_runs r ON r.id=s.run_id
+          WHERE s.provider IN ('google','exa') AND s.observed_at>=? AND s.observed_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.observed_at DESC LIMIT 50001`,
         )
         .all(start, now, site, site, provider, provider) as Row[];
       const articles = crawler
         .prepare(
-          `SELECT canonical_url,domain,published,classification,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url FROM articles WHERE (?='' OR domain=?)`,
+          `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url FROM articles WHERE (?='' OR domain=?)`,
         )
         .all(site, site) as Row[];
       const groups = matchSightings(rows.slice(0, 50000), articles);
@@ -259,17 +325,23 @@ export class CoverageReader {
       const heartbeat = monitor
         .prepare("SELECT value FROM monitor_meta WHERE key='heartbeat'")
         .get()?.value;
+      const filtered = groups
+        .filter(
+          (g) =>
+            matches === "all" || (matches === "matched" ? !!g.match : !g.match),
+        )
+        .sort(
+          (a, b) => b.observed_at - a.observed_at || a.key.localeCompare(b.key),
+        );
+      const displayed = filtered.slice((page - 1) * 50, page * 50);
+      attachFetchTiming(crawler, displayed);
       return {
         ...base,
         ready: true,
         summary: count(groups),
-        groups: groups
-          .sort(
-            (a, b) =>
-              Number(!!a.match) - Number(!!b.match) ||
-              b.observed_at - a.observed_at,
-          )
-          .slice(0, 200),
+        groups: displayed,
+        groupCount: filtered.length,
+        pageCount: Math.ceil(filtered.length / 50),
         matrix,
         providers,
         runs,

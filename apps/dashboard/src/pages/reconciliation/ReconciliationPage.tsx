@@ -24,13 +24,26 @@ const names: Record<string, string> = {
 const number = (v: number) => new Intl.NumberFormat("en-US").format(v);
 const time = (v: number | null) =>
   v ? new Date(v).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "—";
+const delta = (v: number | null) => {
+  if (v == null) return "Unknown";
+  const seconds = Math.round(Math.abs(v) / 1000);
+  const value =
+    seconds < 60
+      ? `${seconds}s`
+      : seconds < 3600
+        ? `${(seconds / 60).toFixed(1)}m`
+        : `${(seconds / 3600).toFixed(1)}h`;
+  return `${v < 0 ? "−" : "+"}${value}`;
+};
 const percent = (v: number | null | undefined) =>
   v == null ? "—" : v.toFixed(1) + "%";
 export default function ReconciliationPage() {
   const query = new URLSearchParams(location.search);
   const [window, setWindow] = useState(query.get("window") || "24h"),
     [site, setSite] = useState(query.get("site") || ""),
-    [provider, setProvider] = useState(query.get("provider") || "");
+    [provider, setProvider] = useState(query.get("provider") || ""),
+    [matches, setMatches] = useState(query.get("matches") || "all"),
+    [page, setPage] = useState(Number(query.get("page")) || 1);
   const [data, setData] = useState<Row | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
@@ -39,6 +52,8 @@ export default function ReconciliationPage() {
     const params = new URLSearchParams({ window });
     if (site) params.set("site", site);
     if (provider) params.set("provider", provider);
+    if (matches !== "all") params.set("matches", matches);
+    if (page > 1) params.set("page", String(page));
     history.replaceState(null, "", "/reconciliation?" + params);
     const controller = new AbortController();
     let running = false;
@@ -68,9 +83,9 @@ export default function ReconciliationPage() {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
     };
-  }, [window, site, provider, refresh]);
+  }, [window, site, provider, matches, page, refresh]);
   const summary = data?.summary;
-  const missing = (data?.groups || []).filter((g: Row) => !g.match);
+  const groups = data?.groups || [];
   return (
     <div className="app-shell reconciliation-page">
       <aside className="sidebar">
@@ -136,7 +151,7 @@ export default function ReconciliationPage() {
             <ChevronRight size={13} />
             <strong>Coverage</strong>
           </div>
-          <span>Provider polls every 30 min</span>
+          <span>Provider polls every {data?.cadenceMinutes ?? 10} min</span>
         </header>
         <div className="reconcile-content">
           <div className="reconcile-heading">
@@ -162,7 +177,10 @@ export default function ReconciliationPage() {
               Window
               <select
                 value={window}
-                onChange={(e) => setWindow(e.target.value)}
+                onChange={(e) => {
+                  setWindow(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="1h">Last hour</option>
                 <option value="24h">Last 24 hours</option>
@@ -171,7 +189,13 @@ export default function ReconciliationPage() {
             </label>
             <label>
               Domain
-              <select value={site} onChange={(e) => setSite(e.target.value)}>
+              <select
+                value={site}
+                onChange={(e) => {
+                  setSite(e.target.value);
+                  setPage(1);
+                }}
+              >
                 <option value="">All 20 domains</option>
                 {(data?.sites || []).map((s: string) => (
                   <option key={s}>{s}</option>
@@ -182,7 +206,10 @@ export default function ReconciliationPage() {
               Provider
               <select
                 value={provider}
-                onChange={(e) => setProvider(e.target.value)}
+                onChange={(e) => {
+                  setProvider(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="">All providers</option>
                 {Object.entries(names).map(([id, name]) => (
@@ -274,7 +301,10 @@ export default function ReconciliationPage() {
                               : "Waiting"}
                     </Badge>
                   </header>
-                  <p>{p?.note || "30-minute polls · staggered requests"}</p>
+                  <p>
+                    {p?.note ||
+                      `${data?.cadenceMinutes ?? 10}-minute polls · staggered requests`}
+                  </p>
                   <small>
                     {number(p?.used_today || 0)} calls / 24h
                     {p?.total_limit > 0
@@ -319,7 +349,12 @@ export default function ReconciliationPage() {
                   {(data?.matrix || []).map((r: Row) => (
                     <tr key={r.site}>
                       <td>
-                        <button onClick={() => setSite(r.site)}>
+                        <button
+                          onClick={() => {
+                            setSite(r.site);
+                            setPage(1);
+                          }}
+                        >
                           {r.site}
                         </button>
                       </td>
@@ -341,52 +376,178 @@ export default function ReconciliationPage() {
               </table>
             </div>
           </section>
-          <section className="reconcile-panel">
+          <section className="reconcile-panel" id="article-timing">
             <div className="panel-heading">
               <div>
-                <h2>Articles to investigate</h2>
+                <h2>Article timing</h2>
                 <p>
-                  Unmatched does not prove missed. Providers may return stale
-                  stories, aliases, or different titles.
+                  Compare provider publication and observation with our
+                  completed fetch. All times UTC.
                 </p>
               </div>
-              <Badge variant="outline">{missing.length} shown · max 200</Badge>
+              <label className="timing-filter">
+                Show
+                <select
+                  value={matches}
+                  onChange={(e) => {
+                    setMatches(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">All articles</option>
+                  <option value="matched">Matched articles</option>
+                  <option value="unmatched">Not matched</option>
+                </select>
+              </label>
             </div>
-            <div className="reconcile-missing">
-              {missing.length ? (
-                missing.map((g: Row) => (
-                  <article key={g.key}>
-                    <div>
-                      <a href={g.url} target="_blank" rel="noreferrer">
-                        {g.title || g.url}
-                        <ExternalLink size={12} />
-                      </a>
-                      <p>
-                        {g.site} ·{" "}
-                        {g.providers.map((p: string) => names[p]).join(", ")} ·
-                        first observed {time(g.observed_at)}
+            <p className="timing-note">
+              First observed is when our poll saw the result, not when the
+              provider indexed it. Publication dates are provider-reported.
+              Negative differences mean our fetch finished earlier than that
+              timestamp.
+            </p>
+            <div className="reconcile-timings">
+              {groups.length ? (
+                groups.map((g: Row) => (
+                  <details key={g.key} className="timing-article">
+                    <summary>
+                      <div>
+                        <strong>{g.title || g.url}</strong>
+                        <small>
+                          {g.site} · Fetched:{" "}
+                          {time(g.crawler_fetch_finished_at)} · First observed:{" "}
+                          {time(g.observed_at)}
+                        </small>
+                      </div>
+                      <Badge variant="outline">
+                        {g.match === "url"
+                          ? "URL match"
+                          : g.match === "title"
+                            ? "Probable title match"
+                            : g.ambiguous
+                              ? "Ambiguous title"
+                              : g.observed_at > data!.generatedAt - 1800000
+                                ? "Catching up"
+                                : "Not matched"}
+                      </Badge>
+                    </summary>
+                    <div className="timing-body">
+                      <div className="timing-links">
+                        <a href={g.url} target="_blank" rel="noreferrer">
+                          Provider result <ExternalLink size={12} />
+                        </a>
+                        {g.article_url && (
+                          <a
+                            href={g.article_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Matched article <ExternalLink size={12} />
+                          </a>
+                        )}
+                        {g.crawler_request_id && (
+                          <a
+                            href={`/api/requests/${g.crawler_request_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Fetch record #{g.crawler_request_id}
+                          </a>
+                        )}
+                      </div>
+                      <dl className="crawler-times">
+                        <div>
+                          <dt>Our fetch finished</dt>
+                          <dd>{time(g.crawler_fetch_finished_at)}</dd>
+                          <small>
+                            {g.crawler_fetch_time_source === "worker_receipt"
+                              ? "Worker receipt"
+                              : g.crawler_fetch_time_source ===
+                                  "legacy_request_finished"
+                                ? "Legacy request record"
+                                : "No linked successful fetch record"}
+                          </small>
+                        </div>
+                        <div>
+                          <dt>Our parse finished</dt>
+                          <dd>{time(g.crawler_parsed_at)}</dd>
+                        </div>
+                        <div>
+                          <dt>Publication in our article</dt>
+                          <dd>{time(g.crawler_published_at)}</dd>
+                        </div>
+                      </dl>
+                      <div className="reconcile-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Provider</th>
+                              <th>Published</th>
+                              <th>First observed by us</th>
+                              <th>Fetch − publication</th>
+                              <th>Fetch − observation</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(g.provider_timings || []).map((t: Row) => (
+                              <tr key={t.sighting_id}>
+                                <td>
+                                  {names[t.provider]}
+                                  <small>First poll #{t.first_run_id}</small>
+                                </td>
+                                <td>{time(t.published_at)}</td>
+                                <td>
+                                  {time(t.observed_at)}
+                                  <small>
+                                    Last observed {time(t.last_observed_at)}
+                                  </small>
+                                </td>
+                                <td>{delta(t.fetch_minus_published_ms)}</td>
+                                <td>{delta(t.fetch_minus_observed_ms)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="timing-note">
+                        Exact provider indexing time: not supplied. Publication
+                        and observation timestamps stay separate for each
+                        provider.
+                        {g.match === "title" &&
+                          " This is a probable title/date match, not a verified URL match."}
                         {g.audit &&
-                          ` · audit ${g.audit.status ? "HTTP " + g.audit.status : g.audit.state}`}
+                          ` Audit: ${g.audit.status ? "HTTP " + g.audit.status : g.audit.state}.`}
                       </p>
                     </div>
-                    <Badge variant="outline">
-                      {g.ambiguous
-                        ? "Ambiguous title"
-                        : g.observed_at > data!.generatedAt - 1800000
-                          ? "Catching up"
-                          : g.url_key
-                            ? "Not matched"
-                            : "URL unresolved"}
-                    </Badge>
-                  </article>
+                  </details>
                 ))
               ) : (
                 <div className="reconcile-empty">
-                  {summary?.total
-                    ? "Every article in this sample currently has a match."
-                    : "No provider sample yet. No coverage claim is made."}
+                  No articles match these filters.
                 </div>
               )}
+            </div>
+            <div className="timing-pagination">
+              <span>
+                {number(data?.groupCount || 0)} articles · Page {page} of{" "}
+                {Math.max(1, data?.pageCount || 0)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading || page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading || page >= (data?.pageCount || 0)}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
             </div>
           </section>
           <section className="reconcile-panel">
