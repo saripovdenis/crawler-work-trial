@@ -1,45 +1,23 @@
 .freshness-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .freshness-stats strong { font-size: clamp(28px, 3vw, 42px); }
-.freshness-chart { height: 270px; padding: 12px 12px 0; }
 .freshness-sample { display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 16px 20px; border: 1px solid #e1e5ef; border-radius: 8px; background: #fafbfe; font-size: 11px; color: #737d92; }
 .freshness-sample b { color: #293c6b; font-variant-numeric: tabular-nums; }
-.freshness-page .reconcile-definition a { color: #1840ed; text-decoration: underline; }
+.fetch-delay-table table { min-width: 950px; table-layout: fixed; }
+.fetch-delay-table th:first-child { width: 35%; }
+.fetch-delay-table th:nth-child(2), .fetch-delay-table th:nth-child(3) { width: 20%; }
+.fetch-delay-table th:nth-child(4) { width: 10%; }
+.fetch-delay-table td { vertical-align: top; white-space: normal; }
+.fetch-delay-table td small { display: block; margin-top: 6px; color: #7c879c; }
+.fetch-delay-table a { color: #1840ed; text-decoration: none; }
+.fetch-delay-table a:hover { text-decoration: underline; }
+.fetch-delay-article { overflow-wrap: anywhere; }
+.fetch-delay-article > a { font-weight: 500; }
+.fetch-delay-article > small { font-size: 10px; }
 @media (max-width: 700px) {
   .freshness-stats { grid-template-columns: 1fr; }
   .freshness-stats section { padding: 18px; }
-  .freshness-page .reconcile-heading { flex-wrap: wrap; gap: 0; }
+  .freshness-page .reconcile-heading, .freshness-page .panel-heading { flex-wrap: wrap; gap: 12px; }
   .freshness-page .reconcile-filters select { min-width: 0; }
   .freshness-page .reconcile-filters label { flex-basis: 45%; min-width: 0; }
 }
-.timing-comparison .panel-heading { gap: 16px; align-items: flex-start; }
-.comparison-eyebrow { display: block; color: #68748b; font-size: 10px; letter-spacing: .1em; margin-bottom: 10px; }
-.comparison-count { white-space: nowrap; font-size: 12px; color: #1840ed; background: #eff2ff; padding: 7px 10px; border-radius: 6px; font-variant-numeric: tabular-nums; }
-.comparison-legend { display: flex; flex-wrap: wrap; gap: 16px 36px; padding: 8px 24px 18px; }
-.comparison-legend > div { display: flex; align-items: center; gap: 10px; }
-.comparison-legend strong { display: block; font-size: 12px; color: #253655; }
-.comparison-legend small { display: block; margin-top: 4px; color: #6c7890; font-size: 11px; }
-.comparison-symbol { width: 10px; height: 10px; flex: 0 0 auto; }
-.comparison-symbol.circle { border-radius: 50%; }
-.comparison-symbol.diamond { transform: rotate(45deg); }
-.comparison-chart { height: 280px; padding: 0 16px; }
-.comparison-axis-note { text-align: center; color: #768096; font-size: 11px; margin: 0 0 16px; }
-.comparison-tooltip { display: grid; gap: 7px; padding: 12px 16px; border: 1px solid #e1e5ef; border-radius: 8px; background: #fff; box-shadow: 0 4px 20px #172f5914; color: #253655; font-size: 12px; }
-.comparison-tooltip small { color: #6c7890; }
-.comparison-note, .comparison-method { padding: 0 24px; font-size: 12px; color: #68748b; line-height: 1.7; margin: 16px 0; }
-.comparison-method summary, .freshness-advanced > summary { cursor: pointer; color: #32496e; }
-.freshness-advanced > summary { padding: 18px 0; font-size: 13px; }
-.timing-comparison tbody th small { display: block; color: #768096; font-size: 10px; font-weight: normal; margin-top: 4px; }
-.timing-comparison td { font-variant-numeric: tabular-nums; }
-@media (max-width: 700px) {
-  .timing-comparison .panel-heading { flex-wrap: wrap; }
-  .comparison-legend { gap: 16px; padding: 8px 16px 18px; }
-  .comparison-legend strong { font-size: 11px; }
-  .comparison-legend small { font-size: 10px; }
-  .comparison-chart { padding: 0 4px; }
-  .comparison-note, .comparison-method { padding: 0 16px; }
-}
-@media (max-width: 700px) {
-  .timing-comparison table { table-layout: fixed; width: 100%; white-space: normal; }
-  .timing-comparison th, .timing-comparison td { padding: 12px 7px; font-size: 11px; }
-  .timing-comparison th { overflow-wrap: anywhere; }
-}
+.fetch-delay-url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -6,7 +6,7 @@ import { urlKey, matchingTitle, date } from "./identity.js";
 import { attachFetchTiming } from "./timing.js";
 import { dispatchSummary } from "./dispatch.js";
 import { externalContentKind } from "./content-kind.js";
-import { summarizeFreshness } from "./freshness.js";
+import { publicationTiming, summarizeFreshness } from "./freshness.js";
 type Row = Record<string, any>;
 export type ProviderTiming = {
   sighting_id: number;
@@ -250,7 +250,7 @@ export class CoverageReader {
           FROM external_sightings s LEFT JOIN provider_runs r ON r.id=s.run_id
           WHERE s.provider IN ('google','exa') AND s.provider_published_at>=? AND s.provider_published_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.provider_published_at DESC LIMIT 50001`,
         )
-        .all(start, now, site, site, provider, provider) as Row[];
+        .all(includeFreshness ? Number.MIN_SAFE_INTEGER : start, now, site, site, provider, provider) as Row[];
       const unknownPublication = Number(monitor.prepare(`SELECT count(*) n FROM external_sightings
         WHERE provider IN ('google','exa') AND provider_published_at IS NULL AND last_observed_at>=? AND last_observed_at<?
         AND (?='' OR site=?) AND (?='' OR provider=?)`).get(start,now,site,site,provider,provider)!.n);
@@ -259,7 +259,11 @@ export class CoverageReader {
           `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`,
         )
         .all(site, site) as Row[];
-      const allGroups = matchSightings(rows.slice(0, 50000), articles);
+      const allGroups = matchSightings(rows.slice(0, 50000), articles).filter(group => {
+        if (!includeFreshness) return true;
+        const published = publicationTiming(group, provider || undefined).publishedAt;
+        return published !== null && published >= start && published < now;
+      });
       const excludedGroups = allGroups.flatMap(g => {
         const kind = externalContentKind(g.url, g.site);
         return kind.kind === 'non_article' ? [{site:g.site,title:g.title,url:g.url,reason:kind.reason}] : [];
@@ -371,7 +375,7 @@ export class CoverageReader {
         unknownPublication,
         excludedNonArticles: excludedGroups.length,
         excludedGroups,
-        groups: displayed,
+        groups: includeFreshness ? displayed.map(group => ({ ...group, publication_timing: publicationTiming(group, provider || undefined) })) : displayed,
         groupCount: filtered.length,
         pageCount: Math.ceil(filtered.length / 50),
         matrix,
