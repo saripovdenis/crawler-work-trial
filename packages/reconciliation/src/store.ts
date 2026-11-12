@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { sites } from "../../../config/sites.js";
 import {
   pollInterval,
+  pollLookback,
   type providerConfig,
   type ProviderId,
 } from "../../../config/monitor.js";
@@ -101,7 +102,7 @@ export class MonitorStore {
           continue;
         const from = Math.max(
           now - 86400000,
-          (row.last_success ?? now) - 3600000,
+          (row.last_success ?? now) - pollLookback,
         );
         const id = Number(
           this.db

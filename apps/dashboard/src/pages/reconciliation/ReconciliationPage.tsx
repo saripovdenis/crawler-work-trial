@@ -126,7 +126,7 @@ export default function ReconciliationPage() {
             Coverage
           </a>
           <a className="nav-item" href="/freshness"><Clock3 size={17} />Freshness</a>
-        </nav>
+        <a className="nav-item" href="/crawler-only"><FileText size={17} />Crawler-only</a></nav>
         <div className="sidebar-note">
           <ScanSearch size={18} />
           <strong>An independent cross-check.</strong>

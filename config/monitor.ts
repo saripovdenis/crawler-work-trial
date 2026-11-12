@@ -1,6 +1,8 @@
 export const providerIds = ["google", "exa"] as const;
 export type ProviderId = (typeof providerIds)[number];
 export const pollInterval = 10 * 60_000;
+// Each steady-state poll overlaps the previous successful poll by one hour.
+export const pollLookback = 60 * 60_000;
 export const editions: Record<
   string,
   { hl: string; gl: string; ceid: string }
