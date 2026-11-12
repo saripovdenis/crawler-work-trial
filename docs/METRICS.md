@@ -23,9 +23,9 @@ publication date reported by Google News or Exa**. One provider is enough; an
 article does not have to appear in both. Provider observation times are not part
 of this metric. It measures download completion, not parse completion.
 
-The page has three cards and a paginated URL table. Every row exposes its earliest
+The page has one row of three percentiles and a paginated URL table. Every row exposes its earliest
 publication, the provider(s) reporting that date, linked fetch finish, delay and
-status. Cards use the full timed sample, independent of pagination or the table's
+status. Percentiles use the full timed sample, independent of pagination or the table's
 fetched/not-fetched filter. Missing downloads or timestamps never become zero.
 Incomplete parses and probable title matches remain included and visibly labeled.
 

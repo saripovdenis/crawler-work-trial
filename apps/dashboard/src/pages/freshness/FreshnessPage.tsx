@@ -1,16 +1,6 @@
+import { Sidebar } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import { useEffect, useState } from "react";
-import {
-  Activity,
-  BarChart3,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Globe2,
-  LayoutDashboard,
-  ScanSearch,
-  RefreshCw,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import "../App.css";
 import "../charts/charts.css";
@@ -38,8 +28,7 @@ export default function FreshnessPage() {
     [page, setPage] = useState(Number(query.get("page")) || 1);
   const [data, setData] = useState<Row | null>(null),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(true),
-    [refresh, setRefresh] = useState(0);
+    [loading, setLoading] = useState(true);
   useEffect(() => {
     const params = new URLSearchParams({ window });
     if (site) params.set("site", site);
@@ -74,94 +63,17 @@ export default function FreshnessPage() {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
     };
-  }, [window, site, matches, page, refresh]);
+  }, [window, site, matches, page]);
   const summary = data?.freshness?.overall;
   const percentiles = summary?.published;
   return (
     <div className="app-shell reconciliation-page freshness-page">
-      <aside className="sidebar">
-        <a className="wordmark" href="/">
-          exa<span className="wordmark-dot">*</span>
-          <span className="brand-divider" />
-          <span className="brand-project">
-            crawler
-            <br />
-            observatory
-          </span>
-        </a>
-        <div className="workspace">
-          <span className="workspace-icon">
-            <Globe2 size={17} />
-          </span>
-          <div>
-            News discovery<span>External comparison</span>
-          </div>
-          <ChevronRight size={14} />
-        </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav aria-label="Dashboard">
-          <a className="nav-item" href="/?view=overview">
-            <LayoutDashboard size={17} />
-            Overview
-          </a>
-          <a className="nav-item" href="/?view=requests">
-            <Activity size={17} />
-            Request log
-          </a>
-          <a className="nav-item" href="/?view=articles">
-            <FileText size={17} />
-            Articles
-          </a>
-          <a className="nav-item" href="/?view=schedule">
-            <Clock3 size={17} />
-            Poll schedule
-          </a>
-          <a className="nav-item" href="/charts">
-            <BarChart3 size={17} />
-            Charts
-          </a>
-          <a
-            className="nav-item"
-            href="/reconciliation"
-          >
-            <ScanSearch size={17} />
-            Coverage
-          </a>
-          <a className="nav-item active" href="/freshness" aria-current="page"><Clock3 size={17} />Freshness</a>
-        </nav>
-        <div className="sidebar-note">
-          <ScanSearch size={18} />
-          <strong>Publication → completed download.</strong>
-          <p>One delay per article, from its earliest reported publication date.</p>
-        </div>
-      </aside>
+      <Sidebar active="freshness" />
       <main>
-        <header className="topbar">
-          <div className="breadcrumb">
-            <a href="/">Workspace</a>
-            <ChevronRight size={13} />
-            <strong>Freshness</strong>
-          </div>
-          <span>All timestamps in UTC</span>
-        </header>
         <div className="reconcile-content">
-          <div className="reconcile-heading">
-            <div className="charts-heading">
-              <span className="charts-eyebrow">RECONCILIATION</span>
-              <h1>
-                Freshness<span>.</span>
-              </h1>
-              <p>How long after publication does your crawler finish downloading an article?</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRefresh((x) => x + 1)}
-              disabled={loading}
-            >
-              <RefreshCw size={14} />
-              {loading ? "Loading…" : "Refresh view"}
-            </Button>
+          <div className="charts-heading">
+            <h1>Freshness</h1>
+            <p>How long after publication does your crawler finish downloading an article?</p>
           </div>
           <div className="reconcile-filters">
             <label>
@@ -188,7 +100,7 @@ export default function FreshnessPage() {
                   setPage(1);
                 }}
               >
-                <option value="">All 20 domains</option>
+                <option value="">All domains</option>
                 {(data?.sites || []).map((s: string) => (
                   <option key={s}>{s}</option>
                 ))}
@@ -215,32 +127,31 @@ export default function FreshnessPage() {
               Reconciler heartbeat is stale. These results may be out of date.
             </div>
           )}
-          <div className="reconcile-stats freshness-stats" aria-live="polite" aria-busy={loading}>
-            {[["p50", "50%"], ["p75", "75%"], ["p90", "90%"]].map(([key, fraction]) => (
-              <section key={key} className={key === "p50" ? "coverage-hero" : ""}>
-                <span>{key.toUpperCase()} · publication to fetch finish</span>
-                <strong>{duration(percentiles?.[key])}</strong>
-                <p>{percentiles?.[key] < 0 ? "Before reported publication; check the source timestamps." : `${fraction} of timed articles finished within this delay.`}</p>
-                <small>{number(percentiles?.count || 0)} timed articles</small>
-              </section>
-            ))}
-          </div>
-          <p className="reconcile-definition">
-            <strong>Delay = fetch finish − earliest publication date from Google News or Exa.</strong>{" "}
-            One provider’s date is enough; when both have a date, we use the earlier one.
-            Example: published at 12:00, downloaded at 12:02 → 2 minutes.
-          </p>
+          <section className="freshness-percentiles" aria-live="polite" aria-busy={loading}>
+            <h2>Publication to fetch finish</h2>
+            <dl>
+              {["p50", "p75", "p90"].map((key) => (
+                <div key={key}>
+                  <dt>{key.toUpperCase()}</dt>
+                  <dd>{duration(percentiles?.[key])}</dd>
+                </div>
+              ))}
+            </dl>
+            {["p50", "p75", "p90"].some((key) => percentiles?.[key] < 0) && (
+              <p>A percentile is before reported publication; check the source timestamps.</p>
+            )}
+          </section>
           <div className="freshness-sample">
             <span><b>{number(summary?.total || 0)}</b> article records</span>
             <span><b>{number(percentiles?.count || 0)}</b> included in percentiles</span>
             <span><b>{number(summary?.unmatched || 0)}</b> without a matched fetch</span>
             <span><b>{number(summary?.missingTiming || 0)}</b> missing fetch timestamp</span>
           </div>
-          <p className="reconcile-definition">
-            Percentiles use all timed articles in this window, including incomplete parses—not just this table page.
-            Unmatched articles and unknown timestamps are excluded, never counted as zero. This covers articles found by Google News or Exa, not every article on the web.
-            {data?.truncated && <strong> The available sample is truncated by a provider or query limit.</strong>}
-          </p>
+          {data?.truncated && (
+            <p className="reconcile-definition">
+              <b>The available sample is truncated by a provider or query limit.</b>
+            </p>
+          )}
           <section className="reconcile-panel">
             <div className="panel-heading"><div><h2>Article records</h2><p>Earliest publication, your fetch finish and the delay for each URL. All times UTC.</p></div>
               <label className="timing-filter">Show

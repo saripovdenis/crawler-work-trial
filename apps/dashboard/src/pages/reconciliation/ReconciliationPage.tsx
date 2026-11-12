@@ -1,17 +1,6 @@
+import { Sidebar } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import { useEffect, useState } from "react";
-import {
-  Activity,
-  BarChart3,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Globe2,
-  LayoutDashboard,
-  ScanSearch,
-  RefreshCw,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import "../App.css";
 import "../charts/charts.css";
@@ -35,8 +24,7 @@ export default function ReconciliationPage() {
     [page, setPage] = useState(Number(query.get("page")) || 1);
   const [data, setData] = useState<Row | null>(null),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(true),
-    [refresh, setRefresh] = useState(0);
+    [loading, setLoading] = useState(true);
   useEffect(() => {
     const params = new URLSearchParams({ window });
     if (site) params.set("site", site);
@@ -72,94 +60,16 @@ export default function ReconciliationPage() {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
     };
-  }, [window, site, provider, matches, page, refresh]);
+  }, [window, site, provider, matches, page]);
   const summary = data?.summary;
   return (
     <div className="app-shell reconciliation-page">
-      <aside className="sidebar">
-        <a className="wordmark" href="/">
-          exa<span className="wordmark-dot">*</span>
-          <span className="brand-divider" />
-          <span className="brand-project">
-            crawler
-            <br />
-            observatory
-          </span>
-        </a>
-        <div className="workspace">
-          <span className="workspace-icon">
-            <Globe2 size={17} />
-          </span>
-          <div>
-            News discovery<span>External comparison</span>
-          </div>
-          <ChevronRight size={14} />
-        </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav aria-label="Dashboard">
-          <a className="nav-item" href="/?view=overview">
-            <LayoutDashboard size={17} />
-            Overview
-          </a>
-          <a className="nav-item" href="/?view=requests">
-            <Activity size={17} />
-            Request log
-          </a>
-          <a className="nav-item" href="/?view=articles">
-            <FileText size={17} />
-            Articles
-          </a>
-          <a className="nav-item" href="/?view=schedule">
-            <Clock3 size={17} />
-            Poll schedule
-          </a>
-          <a className="nav-item" href="/charts">
-            <BarChart3 size={17} />
-            Charts
-          </a>
-          <a
-            className="nav-item active"
-            href="/reconciliation"
-            aria-current="page"
-          >
-            <ScanSearch size={17} />
-            Coverage
-          </a>
-          <a className="nav-item" href="/freshness"><Clock3 size={17} />Freshness</a>
-        </nav>
-        <div className="sidebar-note">
-          <ScanSearch size={18} />
-          <strong>An independent cross-check.</strong>
-          <p>External finds stay separate from crawler discoveries.</p>
-        </div>
-      </aside>
+      <Sidebar active="coverage" />
       <main>
-        <header className="topbar">
-          <div className="breadcrumb">
-            <a href="/">Workspace</a>
-            <ChevronRight size={13} />
-            <strong>Coverage</strong>
-          </div>
-          <span>Provider polls every {data?.cadenceMinutes ?? 10} min</span>
-        </header>
         <div className="reconcile-content">
-          <div className="reconcile-heading">
-            <div className="charts-heading">
-              <span className="charts-eyebrow">RECONCILIATION</span>
-              <h1>
-                Coverage<span>.</span>
-              </h1>
-              <p>Compare crawler articles with external news indexes.</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRefresh((x) => x + 1)}
-              disabled={loading}
-            >
-              <RefreshCw size={14} />
-              {loading ? "Loading…" : "Refresh view"}
-            </Button>
+          <div className="charts-heading">
+            <h1>Coverage</h1>
+            <p>Compare crawler articles with external news indexes.</p>
           </div>
           <div className="reconcile-filters">
             <label>
@@ -186,7 +96,7 @@ export default function ReconciliationPage() {
                   setPage(1);
                 }}
               >
-                <option value="">All 20 domains</option>
+                <option value="">All domains</option>
                 {(data?.sites || []).map((s: string) => (
                   <option key={s}>{s}</option>
                 ))}
@@ -237,7 +147,7 @@ export default function ReconciliationPage() {
           )}
           <div className="reconcile-stats">
             <section className="coverage-hero">
-              <span>Fetched coverage · provider sample</span>
+              <span>Fetched coverage</span>
               <strong>{percent(summary?.fetchedPercentage)}</strong>
               <p>
                 {summary
@@ -254,39 +164,32 @@ export default function ReconciliationPage() {
               </small>
             </section>
             <section>
-              <span>Parsed coverage · provider sample</span>
+              <span>Parsed coverage</span>
               <strong>{percent(summary?.parsedPercentage)}</strong>
               <p>{summary ? `${number(summary.parsedMatched)} / ${number(summary.total)} external articles saved as parsed records` : "Waiting for data"}</p>
               <small>{summary ? `${number(summary.completeMatched)} complete (${percent(summary.completePercentage)}) · ${number(summary.incomplete)} incomplete · ${number(summary.unparsed)} fetched without a parsed record` : "Includes complete and incomplete parses."}</small>
             </section>
             <section>
-              <span>Not matched</span>
+              <span>Not matched · seen over 30 min ago</span>
               <strong>{summary ? number(summary.unmatched) : "—"}</strong>
-              <p>
-                External articles still absent after a 30-minute grace period.
-              </p>
             </section>
             <section>
-              <span>Catching up</span>
+              <span>Catching up · seen under 30 min ago</span>
               <strong>{summary ? number(summary.waiting) : "—"}</strong>
-              <p>New external sightings within the grace period.</p>
             </section>
           </div>
-          <p className="reconcile-definition">
-            This measures the provider sample, not the whole website. Window
-            uses the publication date reported by each provider, in UTC. Both percentages
-            use the same external sample: fetched means an archived successful article download;
-            parsed means a saved article record, including incomplete parses. Exact URL
-            matches are strongest; title + domain + publication time matches are probable.{" "}
-            {data?.unknownPublication > 0 && `${number(data?.unknownPublication || 0)} sightings with unknown publication dates are excluded. `}
-            {data && data.excludedNonArticles > 0 && `${number(data.excludedNonArticles)} verified topic/profile pages are excluded. `}
-            {data?.truncated && (
-              <b>
-                One or more result sets reached a provider limit: this is a
-                truncated sample.
-              </b>
-            )}
-          </p>
+          {data && (data.unknownPublication > 0 || data.excludedNonArticles > 0 || data.truncated) && (
+            <p className="reconcile-definition">
+              {data.unknownPublication > 0 && `Excluded: ${number(data.unknownPublication)} with unknown publication date. `}
+              {data.excludedNonArticles > 0 && `Excluded: ${number(data.excludedNonArticles)} verified topic/profile pages. `}
+              {data.truncated && (
+                <b>
+                  One or more result sets reached a provider limit: this is a
+                  truncated sample.
+                </b>
+              )}
+            </p>
+          )}
           {data && data.excludedNonArticles > 0 && (
             <details className="reconcile-definition">
               <summary>Review excluded pages ({data.excludedNonArticles}) · unfiltered coverage {percent(data.unfilteredSummary?.percentage)}</summary>
@@ -344,14 +247,7 @@ export default function ReconciliationPage() {
           </div>
           <section className="reconcile-panel">
             <div className="panel-heading">
-              <div>
-                <h2>Provider × domain</h2>
-                <p>
-                  Unique external articles per provider. The union is
-                  deduplicated.
-                </p>
-              </div>
-              <Badge variant="outline">20 configured sites</Badge>
+              <h2>Provider × domain</h2>
             </div>
             <div className="reconcile-table">
               <table>

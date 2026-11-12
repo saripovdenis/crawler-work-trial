@@ -15,7 +15,7 @@ const initialWindow = (): Window => {
 function QualityTooltip({ active, payload }: { active?: boolean; payload?: readonly { payload?: Domain }[] }) {
   const row = payload?.[0]?.payload;
   if (!active || !row) return null;
-  return <div className="quality-tooltip"><strong>{row.domain}</strong><p>{row.total ? `${percent(row.percentage)} incomplete` : 'No posts'}</p><span>{row.incomplete} incomplete / {row.total} total</span></div>;
+  return <div className="quality-tooltip"><strong>{row.domain}</strong><p>{row.total ? `${percent(row.percentage)} incomplete` : 'No articles'}</p><span>{row.incomplete} incomplete / {row.total} total</span></div>;
 }
 export function ParsingQuality() {
   const [window, setWindow] = useState<Window>(initialWindow);
@@ -54,14 +54,13 @@ export function ParsingQuality() {
     return () => { disposed = true; active?.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', visibility); };
   }, [window, retry]);
   const updating = loading || data?.window !== window;
-  const rows = data?.domains.map(row => ({ ...row, value: row.percentage ?? 0, countLabel: row.total ? `${row.incomplete} / ${row.total}` : 'no posts' })) ?? [];
+  const rows = data?.domains.map(row => ({ ...row, value: row.percentage ?? 0, countLabel: row.total ? `${row.incomplete} / ${row.total}` : 'no articles' })) ?? [];
   return <section className="quality-card" aria-labelledby="quality-title" aria-busy={loading}>
-    <div className="quality-header"><div><h2 id="quality-title">Parsing quality</h2><p>Incomplete posts · by domain</p></div><span className="quality-live">30s refresh</span></div>
+    <div className="quality-header"><div><h2 id="quality-title">Parsing quality</h2><p>Incomplete articles · by domain</p></div></div>
     <div className="quality-summary"><strong>{percent(data?.overall.percentage ?? null)}</strong><span>{data ? `${data.overall.incomplete.toLocaleString('en-US')} / ${data.overall.total.toLocaleString('en-US')}` : '— / —'}<small>incomplete / total · all domains</small></span></div>
     <div className="quality-controls" role="group" aria-label="Time window">{windows.map(([key, label]) => <Button key={key} size="sm" variant={window === key ? 'default' : 'ghost'} aria-pressed={window === key} onClick={() => setWindow(key)}>{label}</Button>)}</div>
-    <div className="quality-message" aria-live="polite">{error ? <><span role="alert">{error}</span><button onClick={() => setRetry(n => n + 1)}>Retry</button></> : updating ? (data ? 'Updating · showing previous result' : 'Loading parsing quality…') : data?.overall.total === 0 ? 'No parsed posts in this window.' : <><span>Worst first</span><span><i/>Fewer than 5 posts</span></>}</div>
-    <div className="quality-scroll" tabIndex={0} aria-label="Parsing quality by domain; scroll for all 20 sites">
-      {data ? <div className="quality-plot"><ResponsiveContainer width="100%" height="100%" minWidth={0}>
+    <div className="quality-message" aria-live="polite">{error ? <><span role="alert">{error}</span><button onClick={() => setRetry(n => n + 1)}>Retry</button></> : updating ? (data ? 'Updating · showing previous result' : 'Loading parsing quality…') : data?.overall.total === 0 ? 'No parsed articles in this window.' : <span><i/>Fewer than 5 articles</span>}</div>
+    {data ? <div className="quality-plot"><ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }} accessibilityLayer>
           <XAxis type="number" domain={[0,100]} ticks={[0,50,100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10, fill: '#8b8e9c' }} axisLine={false} tickLine={false} orientation="top"/>
           <YAxis type="category" dataKey="domain" width={139} tick={{ fontSize: 10, fill: '#626778' }} axisLine={false} tickLine={false} interval={0}/>
@@ -71,9 +70,6 @@ export function ParsingQuality() {
             {rows.map(row => <Cell key={row.domain} fill={row.total < 5 ? '#c6cffb' : '#1840ed'}/>)}
           </Bar>
         </BarChart>
-      </ResponsiveContainer></div> : <div className="quality-placeholder">{error ? 'Chart unavailable' : 'Loading 20 sources…'}</div>}
-    </div>
-    <div className="quality-range">{data ? `${data.windowStart.replace('T',' ').slice(0,19)} → ${data.windowEnd.replace('T',' ').slice(0,19)} UTC` : 'Time range · UTC'}</div>
-    <p className="quality-footnote">Incomplete = missing article evidence, title, or 200 text characters; window uses parse completion (<code>articles.fetched</code>).</p>
+      </ResponsiveContainer></div> : <div className="quality-placeholder">{error ? 'Chart unavailable' : 'Loading…'}</div>}
   </section>;
 }

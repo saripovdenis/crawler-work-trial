@@ -238,8 +238,8 @@ and proxies to the API on loopback port 4318. Google Cloud ingress exposes only
 - Schedule: earliest source eligibility, successful polls, errors, URL discovery counts.
 
 UI updates every 10 seconds; overview queries are cached for 10 seconds. All times
-render in the viewer's local timezone. Headline metrics and the activity chart cover
-all sites; the website selector filters tables and lists. Site health reflects the
+render in UTC. Overview always covers all sites; the website selector filters the
+request log, articles and schedule. Site health reflects the
 last result for each discovery source, not a guarantee of complete article coverage.
 The request inspector uses the current parser, shows at most 200 candidate links,
 and does not claim they were all newly discovered in that poll. API responses omit

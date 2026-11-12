@@ -1,30 +1,17 @@
+import { Sidebar, type View } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity,
-  BarChart3,
-  ScanSearch,
   ArrowDown,
-  ArrowRight,
   ArrowUpRight,
   Check,
-  ChevronRight,
   CircleHelp,
-  Clock3,
-  Code2,
-  Database,
   ExternalLink,
-  FileText,
-  GitBranch,
-  Globe2,
-  LayoutDashboard,
   ListFilter,
   Pause,
   Play,
   RefreshCw,
   Search,
-  Radio,
-  X,
 } from "lucide-react";
 import {
   Area,
@@ -43,7 +30,6 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
 } from "@/components/ui/sheet";
 import {
   Table,
@@ -57,25 +43,26 @@ import "./App.css";
 
 type Row = Record<string, any>;
 type Tab = "overview" | "requests" | "articles" | "schedule";
-const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "requests", label: "Request log", icon: Activity },
-  { id: "articles", label: "Articles", icon: FileText },
-  { id: "schedule", label: "Poll schedule", icon: Clock3 },
-];
+const titles: Record<Tab, string> = {
+  overview: "Overview",
+  requests: "Request log",
+  articles: "Articles",
+  schedule: "Poll schedule",
+};
 const number = (n: number | undefined) =>
   n == null ? "—" : new Intl.NumberFormat("en-US").format(n);
-const time = (n: number | string | null) =>
-  n
-    ? new Date(n).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })
-    : "—";
-const fullDate = (n: number | string | null) =>
-  n ? new Date(n).toLocaleString() : "Not available";
+// Every page shows UTC, matching Coverage and Freshness.
+const time = (n: number | string | null) => {
+  const d = n ? new Date(n) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(11, 19) : "—";
+};
+const fullDate = (n: number | string | null) => {
+  if (!n) return "Not available";
+  const d = new Date(n);
+  return Number.isNaN(d.getTime())
+    ? String(n)
+    : d.toISOString().replace("T", " ").slice(0, 19) + " UTC";
+};
 const delay = (n: number | null) =>
   n == null
     ? "—"
@@ -92,18 +79,6 @@ async function json(path: string, signal?: AbortSignal) {
   if (!r.ok) throw new Error(`Data service returned ${r.status}`);
   return r.json();
 }
-function Health({ state }: { state: string }) {
-  return (
-    <span className={`health ${state}`}>
-      <i />
-      {state === "healthy"
-        ? "Healthy"
-        : state === "degraded"
-          ? "Degraded"
-          : "Blocked"}
-    </span>
-  );
-}
 function Status({ row }: { row: Row }) {
   return (
     <Badge
@@ -114,20 +89,12 @@ function Status({ row }: { row: Row }) {
     </Badge>
   );
 }
-function Domain({ name }: { name: string }) {
-  return (
-    <span className="domain">
-      <span className="domain-icon">{name.substring(0, 2)}</span>
-      {name}
-    </span>
-  );
-}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>(
-    () =>
-      (new URLSearchParams(location.search).get("view") as Tab) || "overview",
-  );
+  const [tab, setTab] = useState<Tab>(() => {
+    const view = new URLSearchParams(location.search).get("view");
+    return view && view in titles ? (view as Tab) : "overview";
+  });
   const [overview, setOverview] = useState<Row | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [domain, setDomain] = useState("");
@@ -151,6 +118,11 @@ export default function App() {
     u.searchParams.set("view", t);
     history.replaceState(null, "", u);
   };
+  const selectView = (view: View) => {
+    if (!(view in titles)) return false;
+    changeTab(view as Tab);
+    return true;
+  };
   const selectDomain = (d: string) => {
     setDomain(d);
     setCursor(null);
@@ -158,26 +130,26 @@ export default function App() {
   const load = useCallback(
     async (signal?: AbortSignal) => {
       try {
-        const params = new URLSearchParams({
-          domain,
-          errors: String(errorsOnly),
-          fresh: String(freshOnly),
-          q: search,
-        });
-        if (cursor) params.set("before", String(cursor));
+        // Each list gets only the filters its endpoint reads; Overview has no list.
+        const params = new URLSearchParams();
+        if (domain) params.set("domain", domain);
+        if (tab === "requests" && errorsOnly) params.set("errors", "true");
+        if (tab === "articles" && freshOnly) params.set("fresh", "true");
+        if (tab === "articles" && search) params.set("q", search);
+        if (cursor && tab !== "schedule") params.set("before", String(cursor));
         const endpoint =
           tab === "schedule"
             ? "sources"
-            : tab === "articles"
-              ? "articles"
-              : "requests";
+            : tab === "overview"
+              ? null
+              : tab;
         const [summary, list] = await Promise.all([
           json("/api/overview", signal),
-          json(`/api/${endpoint}?${params}`, signal),
+          endpoint ? json(`/api/${endpoint}?${params}`, signal) : null,
         ]);
         setOverview(summary);
-        setRows(list.items);
-        setNextCursor(list.nextCursor || null);
+        setRows(list?.items ?? []);
+        setNextCursor(list?.nextCursor || null);
         setError("");
       } catch (e) {
         if (!signal?.aborted) setError(String(e));
@@ -220,137 +192,15 @@ export default function App() {
     }
   };
   const totals = overview?.totals;
-  const filteredSites = (overview?.sites || []).filter(
-    (s: Row) => !domain || s.domain === domain,
-  );
+  const sites: Row[] = overview?.sites || [];
   const running = overview?.running;
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <a
-          className="wordmark"
-          href="?view=overview"
-          aria-label="Crawler observatory home"
-        >
-          exa<span className="wordmark-dot">*</span>
-          <span className="brand-divider" />
-          <span className="brand-project">
-            crawler
-            <br />
-            observatory
-          </span>
-        </a>
-        <div className="workspace">
-          <span className="workspace-icon">
-            <Globe2 size={17} />
-          </span>
-          <div>
-            News discovery<span>Work trial / v1.0</span>
-          </div>
-          <ChevronRight size={14} />
-        </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              className={`nav-item ${tab === t.id ? "active" : ""}`}
-              onClick={() => changeTab(t.id)}
-            >
-              <t.icon size={17} />
-              {t.label}
-              {t.id === "articles" && totals && (
-                <span className="nav-count">{number(totals.fresh)}</span>
-              )}
-            </button>
-          ))}
-          <a className="nav-item" href="/charts"><BarChart3 size={17}/>Charts</a>
-        <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a><a className="nav-item" href="/freshness"><Clock3 size={17}/>Freshness</a></nav>
-        <div className="sidebar-note">
-          <Radio size={17} />
-          <strong>A window into the crawl.</strong>
-          <p>
-            Every request. Every discovery.
-            <br />
-            One place to follow it all.
-          </p>
-        </div>
-        <div className="sidebar-bottom">
-          <div className="deployment">
-            <span className={`dot ${running ? "green" : "amber"}`} />
-            <div>
-              {running
-                ? "Collector online"
-                : overview
-                  ? "Heartbeat stale"
-                  : "Checking collector"}
-              <span>Google Cloud · us-central1</span>
-            </div>
-          </div>
-          <a
-            href="https://github.com/saripovdenis/crawler-work-trial"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <GitBranch size={16} />
-            View source
-            <ArrowUpRight size={14} />
-          </a>
-          <span className="trial-note">Independent work trial</span>
-        </div>
-      </aside>
+      <Sidebar active={tab} onSelect={selectView} />
       <main>
-        <header className="topbar">
-          <div className="breadcrumb">
-            Workspace
-            <ChevronRight size={13} />
-            <strong>
-              {tabs.find((t) => t.id === tab)?.label || "Overview"}
-            </strong>
-          </div>
-          <div className="topbar-right">
-            <span className="read-only">
-              <Globe2 size={13} />
-              Public, read-only
-            </span>
-            <a
-              className="api-link"
-              href="/api/overview"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Code2 size={15} />
-              API
-              <ArrowUpRight size={13} />
-            </a>
-            <span className="avatar">DS</span>
-          </div>
-        </header>
         <div className="content">
           <div className="page-heading">
-            <div>
-              <div className="eyebrow">
-                <span className="tiny-grid" /> CRAWLER INTELLIGENCE
-              </div>
-              <h1>
-                {tab === "overview"
-                  ? "The web, as it happens."
-                  : tab === "requests"
-                    ? "Every request, in view."
-                    : tab === "articles"
-                      ? "Fresh from the web."
-                      : "What happens next."}
-              </h1>
-              <p>
-                {tab === "overview"
-                  ? "Live discoveries and the system behind them."
-                  : tab === "requests"
-                    ? "Inspect responses, timing, and the links each poll returned."
-                    : tab === "articles"
-                      ? "Browse discovered articles and their publication evidence."
-                      : "Source eligibility and the requests waiting in line."}
-              </p>
-            </div>
+            <h1>{titles[tab]}</h1>
             <div className="heading-actions">
               <Button
                 variant="outline"
@@ -395,87 +245,48 @@ export default function App() {
           )}
           <div className="filter-bar">
             <div className="filters">
-              <ListFilter size={15} />
-              <select
-                aria-label="Filter by website"
-                value={domain}
-                onChange={(e) => selectDomain(e.target.value)}
-              >
-                <option value="">All 20 websites</option>
-                {overview?.sites.map((s: Row) => (
-                  <option key={s.domain} value={s.domain}>
-                    {s.domain}
-                  </option>
-                ))}
-              </select>
-              {domain && (
-                <button
-                  className="clear-filter"
-                  aria-label="Clear website filter"
-                  onClick={() => selectDomain("")}
+              {tab !== "overview" && (
+                <select
+                  aria-label="Filter by website"
+                  value={domain}
+                  onChange={(e) => selectDomain(e.target.value)}
                 >
-                  <X size={13} />
-                </button>
+                  <option value="">All websites</option>
+                  {sites.map((s) => (
+                    <option key={s.domain} value={s.domain}>
+                      {s.domain}
+                    </option>
+                  ))}
+                </select>
               )}
-              <span className="filter-separator" />
-              <span className="collection-start">
-                Collecting since{" "}
-                {overview
-                  ? new Date(overview.startedAt).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })
-                  : "—"}
-              </span>
             </div>
             <span className="updated">
               <span className={`dot ${live ? "green" : "gray"}`} />
               {overview
-                ? `Updated ${time(overview.generatedAt)}`
+                ? `Updated ${time(overview.generatedAt)} UTC`
                 : "Connecting…"}
               <SnapshotAge generatedAt={overview?.generatedAt} cache={overview?.cache} />
-              <span className="timezone">local time</span>
             </span>
           </div>
           {tab === "overview" && (
             <>
-              {domain && (
-                <p className="scope-note">
-                  Summary metrics and chart show all websites. Tables are
-                  filtered to {domain}.
-                </p>
-              )}
               <section
                 className="metrics"
                 aria-label="All-time crawler metrics"
               >
                 <div className="metric">
-                  <span>
-                    Fresh articles
-                    <FileText size={16} />
-                  </span>
+                  <span>Fresh articles</span>
                   <strong>{number(totals?.fresh)}</strong>
-                  <small>
-                    <span className="blue">Published during collection</span>
-                    <span>All time</span>
-                  </small>
                 </div>
                 <div className="metric">
-                  <span>
-                    Websites responding
-                    <Globe2 size={16} />
-                  </span>
+                  <span>Websites responding</span>
                   <strong>
                     {number(totals?.respondingSites)}
-                    <em>/20</em>
+                    <em>/{overview ? sites.length : "—"}</em>
                   </strong>
-                  <small>At least one successful source</small>
                 </div>
                 <div className="metric">
-                  <span>
-                    Median discovery delay
-                    <Clock3 size={16} />
-                  </span>
+                  <span>Median discovery delay</span>
                   <strong>{delay(totals?.p50Delay ?? null)}</strong>
                   <small>
                     From publisher timestamps · {number(totals?.delaySamples)}{" "}
@@ -483,27 +294,17 @@ export default function App() {
                   </small>
                 </div>
                 <div className="metric">
-                  <span>
-                    Total requests
-                    <Activity size={16} />
-                  </span>
+                  <span>Total requests</span>
                   <strong>{number(totals?.requests)}</strong>
-                  <small>
-                    <span>{number(totals?.errors)} failed attempts</span>
-                    <span>All time</span>
-                  </small>
+                  <small>{number(totals?.errors)} failed attempts</small>
                 </div>
               </section>
               <section className="panel chart-panel">
                 <div className="panel-header">
                   <div>
                     <h2>Discovery activity</h2>
-                    <p>Request volume and fresh articles over the last hour</p>
+                    <p>Per 5 minutes, last hour (UTC)</p>
                   </div>
-                  <span className="period">
-                    <Clock3 size={13} />
-                    Last 60 minutes
-                  </span>
                 </div>
                 <div className="chart-legend">
                   <span>
@@ -518,7 +319,6 @@ export default function App() {
                     <i style={{ background: "#dc9366" }} />
                     Errors
                   </span>
-                  <small>5-minute intervals</small>
                 </div>
                 <div className="activity-chart">
                   <ResponsiveContainer width="100%" height="100%">
@@ -553,13 +353,7 @@ export default function App() {
                       />
                       <XAxis
                         dataKey="time"
-                        tickFormatter={(n) =>
-                          new Date(n).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: false,
-                          })
-                        }
+                        tickFormatter={(n) => time(n).slice(0, 5)}
                         axisLine={false}
                         tickLine={false}
                         tick={{ fontSize: 11, fill: "#93949c" }}
@@ -608,34 +402,22 @@ export default function App() {
               </section>
               <section className="panel">
                 <div className="panel-header">
-                  <div className="title-inline">
-                    <h2>Website health</h2>
-                    <Badge variant="outline">
-                      {filteredSites.length} sources
-                    </Badge>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => changeTab("schedule")}
-                  >
-                    View schedule
-                    <ArrowRight size={14} />
-                  </Button>
+                  <h2>Website health</h2>
                 </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Website</TableHead>
-                      <TableHead>Status</TableHead>
                       <TableHead>Fresh articles</TableHead>
                       <TableHead>Request budget / min</TableHead>
                       <TableHead>Next poll eligible</TableHead>
-                      <TableHead className="text-right">Last request</TableHead>
+                      <TableHead className="text-right">
+                        Last request UTC
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSites.map((s: Row) => (
+                    {sites.map((s) => (
                       <TableRow key={s.domain}>
                         <TableCell>
                           <button
@@ -645,11 +427,8 @@ export default function App() {
                               changeTab("requests");
                             }}
                           >
-                            <Domain name={s.domain} />
+                            {s.domain}
                           </button>
-                        </TableCell>
-                        <TableCell>
-                          <Health state={s.health} />
                         </TableCell>
                         <TableCell className="numeric">
                           {number(s.fresh)}
@@ -686,49 +465,11 @@ export default function App() {
                   </TableBody>
                 </Table>
               </section>
-              <section className="panel recent-panel">
-                <div className="panel-header">
-                  <div className="title-inline">
-                    <h2>Latest requests</h2>
-                    <span className="live-label">
-                      <span className="dot green" />
-                      Live
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => changeTab("requests")}
-                  >
-                    Open request log
-                    <ArrowRight size={14} />
-                  </Button>
-                </div>
-                {rows.slice(0, 5).map((row) => (
-                  <button
-                    key={row.id}
-                    className="recent-row"
-                    onClick={() => inspect(row)}
-                  >
-                    <span className="numeric muted">{time(row.started)}</span>
-                    <Domain name={row.domain} />
-                    <span className="request-path">
-                      {row.url.replace(/^https?:\/\/[^/]+/, "")}
-                    </span>
-                    <Status row={row} />
-                    <ChevronRight size={14} />
-                  </button>
-                ))}
-              </section>
             </>
           )}
           {tab === "requests" && (
             <section className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Request log</h2>
-                  <p>Each HTTP attempt, including redirects and retries</p>
-                </div>
+              <div className="panel-header tools-only">
                 <Button
                   variant={errorsOnly ? "default" : "outline"}
                   size="sm"
@@ -744,23 +485,32 @@ export default function App() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Website / URL</TableHead>
+                    <TableHead>Time UTC</TableHead>
+                    <TableHead>URL</TableHead>
                     <TableHead>Purpose</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Duration</TableHead>
-                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => (
-                    <TableRow key={r.id}>
+                    <TableRow
+                      key={r.id}
+                      className="clickable-row"
+                      onClick={() => inspect(r)}
+                    >
                       <TableCell className="numeric muted">
                         {time(r.started)}
                       </TableCell>
                       <TableCell>
-                        <Domain name={r.domain} />
-                        <span className="row-url">{r.url}</span>
+                        {/* The click bubbles to the row; the button keeps the row keyboard-reachable. */}
+                        <button
+                          type="button"
+                          className="row-url"
+                          title="Inspect this request"
+                        >
+                          {r.url}
+                        </button>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{r.purpose}</Badge>
@@ -773,16 +523,6 @@ export default function App() {
                           ? `${number(r.finished - r.started)} ms`
                           : "Pending"}
                       </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => inspect(r)}
-                          aria-label={`Inspect request ${r.id}`}
-                        >
-                          <ArrowUpRight size={16} />
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -793,11 +533,7 @@ export default function App() {
           )}
           {tab === "articles" && (
             <section className="panel">
-              <div className="panel-header article-tools">
-                <div>
-                  <h2>Discovered articles</h2>
-                  <p>Publication times come from the publisher</p>
-                </div>
+              <div className="panel-header article-tools tools-only">
                 <div className="article-filters">
                   <div className="search-box">
                     <Search size={15} />
@@ -846,12 +582,9 @@ export default function App() {
                           : r.classification.replaceAll("_", " ")}
                       </Badge>
                     </div>
-                    <h3 dir="auto">{r.title || "Untitled article"}</h3>
-                    <p dir="auto">
-                      {r.description || "No description available"}
-                    </p>
+                    <h3 dir="auto">{r.title || r.url}</h3>
+                    {r.description && <p dir="auto">{r.description}</p>}
                   </div>
-                  <ArrowUpRight size={17} />
                 </button>
               ))}
               {!rows.length && <Empty loading={loading} />}
@@ -868,7 +601,6 @@ export default function App() {
                     articles can delay execution.
                   </p>
                 </div>
-                <Badge variant="outline">{rows.length} endpoints</Badge>
               </div>
               <Table>
                 <TableHeader>
@@ -885,7 +617,6 @@ export default function App() {
                   {rows.map((r) => (
                     <TableRow key={r.url}>
                       <TableCell>
-                        <Domain name={r.domain} />
                         <a
                           className="row-url"
                           href={safeUrl(r.url)}
@@ -912,14 +643,14 @@ export default function App() {
                         {number(r.discovered)}
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={r.errors ? "error-text" : "muted"}
-                          title={r.lastError || ""}
-                        >
-                          {r.errors
-                            ? `${r.errors} consecutive failures`
-                            : "Ready"}
-                        </span>
+                        {!!r.errors && (
+                          <span
+                            className="error-text"
+                            title={r.lastError || ""}
+                          >
+                            {r.errors} consecutive failures
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -927,16 +658,6 @@ export default function App() {
               </Table>
             </section>
           )}
-          <footer className="page-footer">
-            <span>
-              <Database size={13} />
-              Live collector data · refreshes every 10s
-            </span>
-            <span>
-              Coverage not yet measured
-              <CircleHelp size={13} />
-            </span>
-          </footer>
         </div>
       </main>
       <Sheet
@@ -947,21 +668,11 @@ export default function App() {
       >
         <SheetContent className="detail-sheet">
           <SheetHeader>
-            <div className="eyebrow">
-              {detail?.type === "article"
-                ? "ARTICLE DETAILS"
-                : "REQUEST INSPECTOR"}
-            </div>
             <SheetTitle>
               {detail?.type === "article"
-                ? "A closer look."
+                ? "Article"
                 : `Request #${detail?.id || ""}`}
             </SheetTitle>
-            <SheetDescription>
-              {detail?.type === "article"
-                ? "Metadata saved by the collector."
-                : "The actual saved outcome of this HTTP attempt."}
-            </SheetDescription>
           </SheetHeader>
           {detail && (
             <div className="detail-content">
@@ -1025,46 +736,45 @@ export default function App() {
                   {detail.error && (
                     <div className="error-banner">{detail.error}</div>
                   )}
-                  <div className="detail-section">
-                    <h3>
-                      Links in this response{" "}
-                      <Badge variant="outline">{detail.linkCount ?? "—"}</Badge>
-                    </h3>
-                    <p>
-                      Reconstructed from the saved response using the current
-                      parser. Links are candidates, not necessarily new
-                      articles.
-                    </p>
-                    {detailLoading ? (
-                      <div className="empty-state">Loading saved response…</div>
-                    ) : detail.links?.length ? (
-                      <div className="snapshot-links">
-                        {detail.links.map((link: Row) => (
-                          <a
-                            key={link.url}
-                            href={safeUrl(link.url)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {link.url}
-                            <ArrowUpRight size={13} />
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        {detail.snapshotNote ||
-                          (detail.status === 304
-                            ? "Not modified — the server returned no new body."
-                            : detail.purpose !== "discovery"
-                              ? "Link inspection applies to discovery polls."
+                  {detail.purpose === "discovery" && (
+                    <div className="detail-section">
+                      <h3>
+                        Links in this response{" "}
+                        <Badge variant="outline">
+                          {detail.linkCount ?? "—"}
+                        </Badge>
+                      </h3>
+                      {detailLoading ? (
+                        <div className="empty-state">
+                          Loading saved response…
+                        </div>
+                      ) : detail.links?.length ? (
+                        <div className="snapshot-links">
+                          {detail.links.map((link: Row) => (
+                            <a
+                              key={link.url}
+                              href={safeUrl(link.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {link.url}
+                              <ArrowUpRight size={13} />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="empty-state">
+                          {detail.snapshotNote ||
+                            (detail.status === 304
+                              ? "Not modified — the server returned no new body."
                               : "No candidate links in this response.")}
-                      </div>
-                    )}
-                    {detail.linkCount > 200 && (
-                      <p>Showing the first 200 candidate links.</p>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                      {detail.linkCount > 200 && (
+                        <p>Showing the first 200 candidate links.</p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1081,7 +791,6 @@ function Empty({ loading }: { loading: boolean }) {
       <strong>
         {loading ? "Loading collector data…" : "No matching results yet"}
       </strong>
-      <span>Try another website or filter.</span>
     </div>
   );
 }
@@ -1096,26 +805,23 @@ function Pagination({
 }) {
   return (
     <div className="pagination">
-      <span>Up to 60 results per page</span>
-      <div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!cursor}
-          onClick={() => set(null)}
-        >
-          Latest
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!next}
-          onClick={() => set(next)}
-        >
-          Older
-          <ArrowDown size={13} />
-        </Button>
-      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!cursor}
+        onClick={() => set(null)}
+      >
+        Latest
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!next}
+        onClick={() => set(next)}
+      >
+        Older
+        <ArrowDown size={13} />
+      </Button>
     </div>
   );
 }
