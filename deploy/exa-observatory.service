@@ -8,12 +8,12 @@ RequiresMountsFor=/var/lib/exa-crawler
 Type=simple
 User=exa-crawler
 Group=exa-crawler
-WorkingDirectory=/opt/exa-observatory/v1.0.0
+WorkingDirectory=/opt/exa-crawler/layout-v1
 Environment=NODE_ENV=production
 Environment=CRAWLER_DATA_DIR=/var/lib/exa-crawler/data
 Environment=HOST=127.0.0.1
 Environment=PORT=4318
-ExecStart=/usr/local/bin/node --import tsx src/api.ts
+ExecStart=/usr/local/bin/node --import tsx apps/dashboard/src/api/index.ts
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

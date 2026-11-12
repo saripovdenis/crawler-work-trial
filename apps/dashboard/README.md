@@ -1,23 +1,14 @@
-# Crawler Observatory
+# Dashboard
 
-React, Vite, shadcn/ui (Base UI), and Recharts. Public, read-only crawler telemetry.
-
-From the repository root:
+From repository root:
 
 ```sh
-npm run dashboard:api
-npm --prefix dashboard ci
-npm --prefix dashboard run dev
-```
-
-Vite proxies `/api` to localhost:4318. Production builds are served by the API:
-
-```sh
+npm --prefix apps/dashboard ci
 npm run dashboard:build
-npm run dashboard:api
+CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api
 ```
 
-The API reads `CRAWLER_DATA_DIR/crawler.sqlite` and compressed response snapshots.
-No credentials, raw response headers, full article bodies, database downloads, or
-crawler controls are exposed. Filters and request inspection only read stored data;
-they do not trigger extra website requests.
+One Node process serves the built UI and read-only API on `127.0.0.1:4318`.
+Existing overrides: `HOST`, `PORT`, `DASHBOARD_DIST`, `CRAWLER_DATA_DIR`.
+`src/pages` holds UI pages; `src/api` serves HTTP; `src/metrics` owns read-only SQLite connections.
+Health: `/api/health`. Frontend development: `npm --prefix apps/dashboard run dev`.

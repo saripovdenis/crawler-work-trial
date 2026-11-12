@@ -2,6 +2,44 @@
 
 TypeScript / Node.js 24 crawler for the 20 configured news sites. No keys needed.
 
+## Repository layout
+
+```text
+apps/dashboard/src/{pages,api,metrics}  # UI + read-only API, one Node process
+services/crawler/src/
+  loop/                               # entry point, CLI, existing worker/mapping
+  scheduler/                          # persisted request reservations
+  fetcher/transports/                 # outbound HTTP and Python adapter
+services/fetcher-impersonate/          # Python one-request child, requirements.txt
+services/pipeline/src/{sources,newness,extract} # library facades, no daemon
+packages/core/src/                    # shared pure parsing, policy, types
+packages/db/src/                      # unchanged schema and crawler queries
+config/                               # sites, limits, transport profiles
+tools/simulator/                      # offline fixture server and validation
+fixtures/                             # synthetic saved pages
+deploy/                              # systemd + Caddy (no Docker today)
+docs/                                 # decisions, metrics, architecture, move audit
+```
+
+Run all commands from the repository root. Existing npm scripts and separate dashboard
+package remain; no workspace framework was added.
+
+```sh
+npm ci
+npm --prefix apps/dashboard ci
+npm run dashboard:build
+CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api # UI + API on 127.0.0.1:4318
+npm run dev                                       # crawler + inline pipeline
+npm run simulator                                 # optional loopback fake news site
+```
+
+The pipeline stays inside the crawler process. Shared parsing lives in `packages/core`
+because the dashboard also inspects saved responses. No service imports another service's
+source. Python is an on-demand child, never a daemon. Health remains `/api/health`.
+The mapper stays inside the existing worker to avoid a logic refactor.
+
+[Architecture](docs/architecture.md) · [move/content audit](docs/REORGANIZATION.md) · [deployment](deploy/README.md)
+
 ## Run in Cursor's terminal
 
 ```sh
@@ -82,6 +120,7 @@ This is a running baseline, not a completed benchmark or full 100,000-site archi
 
 ```sh
 npm run check
+npm run check:boundaries
 npm test
 ```
 
@@ -89,15 +128,13 @@ Tests cover setup/steady-state limits, the transition, shared domain mapping, pa
 fixtures, freshness, and mocked transport accounting for robots, redirects, failures,
 and Retry-After. Tests use temporary storage and make no live HTTP requests.
 
-Files: `sites.ts` configuration; `http.ts` budget/transport/robots; `parse.ts` extraction;
-`worker.ts` scheduling; `store.ts` persistence/metrics; `cli.ts` process controls.
 Set `CRAWLER_DATA_DIR` in the process environment to change storage; `.env` is not auto-loaded.
 Do not run multiple instances with different data directories against the same sites:
 their independent request budgets would add together.
 
 ## v1.0.1: two-site Chrome transport
 
-The domain allowlist is hardcoded in `src/transport.ts`. `scripts/cffi-fetch.py`
+The domain allowlist is hardcoded in `config/profiles.ts`. `services/fetcher-impersonate/cffi-fetch.py`
 uses curl_cffi 0.17.0 with `chrome136`, browser headers, and caller-supplied conditional
 headers. Python performs exactly one request: Node owns redirects, retries, robots,
 raw snapshots and the shared database budget. No JavaScript browser runs.
@@ -106,28 +143,23 @@ Install Python 3.10+ dependencies in a virtual environment:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -r scripts/cffi-requirements.txt
-.venv/bin/python scripts/check-cffi.py
+.venv/bin/pip install -r services/fetcher-impersonate/requirements.txt
+.venv/bin/python services/fetcher-impersonate/check-cffi.py
 CRAWLER_PYTHON="$PWD/.venv/bin/python" npm start
 ```
 
-`src/budget.ts` atomically checks and reserves each request with SQLite
+`services/crawler/src/scheduler/budget.ts` atomically checks and reserves each request with SQLite
 `BEGIN IMMEDIATE`. Every attempted request, including diagnostics and failures,
 remains charged across redeploys. Site start time and Retry-After cooldowns are also
 persisted. Spacing is measured conservatively from response completion, so throughput
 can be below the cap. Unfinished attempts retain a 30-second in-flight allowance.
 No deployment or poll reset starts a new setup window.
 
-On the existing GCP VM, install the release at `/opt/exa-crawler/v1.0.1`, create its
-`.venv`, run Node and Python checks before stopping the old service, then install
-`deploy/exa-crawler.service`. Keep `/var/lib/exa-crawler/data` unchanged. To resume
-failed discovery early, change only the affected sources' `next_poll`; preserve
-request history, site start times and server cooldowns. The dashboard is a separate
-service and needs no redeployment for this crawler change.
+Deploy using [deploy/README.md](deploy/README.md). The persistent database and request budget stay in place.
 
 ## Bounded transport experiment
 
-`src/probe.ts` compares Node fetch, curl_cffi with crawler headers, and curl_cffi's
+`services/crawler/src/fetcher/probe.ts` compares Node fetch, curl_cffi with crawler headers, and curl_cffi's
 Chrome 136 profile on Hoodline and El Economista. It uses the existing live SQLite
 ledger and limiter, records `probe-*` requests and raw response snapshots, and writes
 results to `data/probes/*.jsonl`. It does not change crawler transports or insert
@@ -140,15 +172,15 @@ It requires unexpired cached robots policies, checks every redirect, caps each r
 at six requests per site, and stops on 429/503. Run only one probe process at a time.
 This is a diagnostic for idle blocked sites, not a production fallback scheduler.
 
-Install the isolated Python dependency with `pip install -r scripts/cffi-requirements.txt`,
+Install the isolated Python dependency with `pip install -r services/fetcher-impersonate/requirements.txt`,
 then run from the project directory:
 
 ```sh
 CRAWLER_DATA_DIR=/path/to/live/data PROBE_PYTHON=/path/to/venv/bin/python \
-  ./node_modules/.bin/tsx src/probe.ts
+  ./node_modules/.bin/tsx services/crawler/src/fetcher/probe.ts
 # Or one profile and URL (the same safety checks still apply):
 CRAWLER_DATA_DIR=/path/to/live/data PROBE_PYTHON=/path/to/venv/bin/python \
-  ./node_modules/.bin/tsx src/probe.ts cffi-chrome https://hoodline.com/
+  ./node_modules/.bin/tsx services/crawler/src/fetcher/probe.ts cffi-chrome https://hoodline.com/
 ```
 
 Both curl variants disable automatic redirects and retries. The Chrome profile
@@ -160,7 +192,7 @@ a repeated control) and curl_cffi with crawler headers, but 200 with the full Ch
 profile. Two article pages per site also returned 200 and yielded text, publication
 dates, and social tags. This is a small transport test, not a reliability or coverage
 measurement. v1.0.1 enables this transport for those two sites. The saved evidence is in
-[`experiments/transport-2026-11-12.json`](experiments/transport-2026-11-12.json).
+[`docs/experiments/transport-2026-11-12.json`](docs/experiments/transport-2026-11-12.json).
 
 ## v1.0: public observability
 
@@ -185,13 +217,8 @@ The request inspector uses the current parser, shows at most 200 candidate links
 and does not claim they were all newly discovered in that poll. API responses omit
 raw headers and full article bodies. Filters never make upstream requests.
 
-`deploy/` contains the service, HTTPS configuration, and VM installation script.
-The v1.0.0 deployment scripts install at `/opt/exa-observatory/v1.0.0`; the existing live database
-is read at `/var/lib/exa-crawler/data/crawler.sqlite`. The public hostname uses the
-VM's reserved regional IP via sslip.io; a custom domain can replace it in Caddyfile.
-
-Publishing a Git tag does not update the running VM. Deploy this release separately
-to activate v1.0.0; the existing v0.2.0 service continues until then.
+`deploy/` contains the unchanged HTTPS proxy configuration and updated systemd entry paths.
+The database remains `/var/lib/exa-crawler/data/crawler.sqlite`; the public URL and port stay unchanged.
 
 Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
 `/api/requests/123`, `/api/articles?fresh=true&q=news`, `/api/sources`.
@@ -199,3 +226,13 @@ There are no write endpoints. API traffic is capped globally at 300 requests/10s
 with at most two simultaneous saved-response inspections.
 
 Validation: `npm run check`, `npm test`, `npm run dashboard:build`.
+
+Offline process/parity check (read-only input snapshot; writes only to a temporary copy):
+
+```sh
+node --import tsx tools/simulator/check-layout.mjs /path/to/snapshot.sqlite
+# Optional final argument: pre-move checkout, to compare every API query family.
+```
+
+The smoke replaces Node fetch with saved fixtures, blocks Node sockets, and uses an
+offline Python-shaped child. The real Python contract test contacts loopback only.
