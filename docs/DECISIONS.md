@@ -1,4 +1,7 @@
-# Layout decisions
+# Layout-only milestone decisions
+
+The process decisions below describe the previous milestone. The subsequent
+[durable scheduler milestone](SCHEDULER.md) intentionally splits scheduling and fetching.
 
 - Keep two systemd processes: crawler and dashboard/API. Python remains an ephemeral child.
 - Keep the existing root Node package and separate dashboard package; no new workspace tooling.

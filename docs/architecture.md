@@ -1,4 +1,17 @@
-# Runtime architecture
+# Current runtime architecture
+
+- `exa-crawler`: private HTTP scheduler plus archived-response processing, `127.0.0.1:4319`.
+- `exa-fetch-worker`: four bounded request slots, atomic archives and completion receipts; no SQLite access.
+- Python curl_cffi: one-request child for the two configured Chrome-profile domains.
+- `exa-observatory`: unchanged read-only API and dashboard on loopback 4318, behind Caddy.
+
+Scheduling, budgets, leases, mapping and writes belong to the coordinator. The worker
+communicates only through the language-neutral HTTP contract and shared archive/receipt files.
+Parsing stays in the coordinator, using the existing shared extraction/classification functions.
+See [protocol, recovery and cutover](SCHEDULER.md).
+
+## Previous layout-only milestone
+
 
 `exa-crawler` starts `services/crawler/src/loop/index.ts`. Its unchanged worker calls
 the fetcher and shared pipeline functions, writes snapshots and SQLite, and persists
