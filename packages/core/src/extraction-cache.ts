@@ -75,7 +75,8 @@ export class CachedExtractor {
   private prune() {
     const files=readdirSync(this.cacheDirectory).filter(name=>/^[a-f0-9]{64}\.json\.gz$/.test(name));
     if(files.length<=5000)return;
-    files.sort((a,b)=>statSync(resolve(this.cacheDirectory,a)).mtimeMs-statSync(resolve(this.cacheDirectory,b)).mtimeMs);
-    for(const file of files.slice(0,files.length-5000))unlinkSync(resolve(this.cacheDirectory,file));
+    const ordered=files.map(name=>({name,modified:statSync(resolve(this.cacheDirectory,name)).mtimeMs}));
+    ordered.sort((a,b)=>a.modified-b.modified);
+    for(const file of ordered.slice(0,files.length-5000))unlinkSync(resolve(this.cacheDirectory,file.name));
   }
 }
