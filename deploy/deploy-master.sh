@@ -128,4 +128,14 @@ print('Existing request charges and site start times preserved')
 PY
 install -m 0644 release.json /var/lib/exa-crawler/deployments/current.json
 cutover=0
+# Keep this release and the one it replaced (the rollback target); remove every
+# other directory under /opt/exa-crawler. A pruning error never fails a deploy.
+previous=$(sed -n 's/^WorkingDirectory=//p' deploy/previous-units/exa-crawler.service | head -n 1)
+in_use=$(for unit in "${units[@]}"; do systemctl show "$unit" -p WorkingDirectory --value; done)
+for old in /opt/exa-crawler/*/; do
+  old=${old%/}
+  [[ "$old" == "$release" || "$old" == "$previous" ]] && continue
+  grep -qxF "$old" <<<"$in_use" && continue
+  rm -rf --one-file-system -- "$old" && echo "Pruned $old" || echo "Could not prune $old" >&2
+done
 printf 'Deployed master %s to all four services: %s\n' "$commit" "$release"

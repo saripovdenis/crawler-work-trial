@@ -44,8 +44,9 @@ Successful release identity is stored in:
 ```
 
 Release directories are named `/opt/exa-crawler/master-SHA-UTC`. Source and
-frontend assets come from that same master commit. Old releases remain available
-for diagnosis and emergency rollback.
+frontend assets come from that same master commit. After a successful
+cutover only that release and the one it replaced are kept; every other
+directory under `/opt/exa-crawler`, with its database backups, is removed.
 
 ## Install or update the entrypoint
 
