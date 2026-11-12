@@ -65,7 +65,7 @@ export function ParsingQuality() {
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }} accessibilityLayer>
           <XAxis type="number" domain={[0,100]} ticks={[0,50,100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10, fill: '#8b8e9c' }} axisLine={false} tickLine={false} orientation="top"/>
           <YAxis type="category" dataKey="domain" width={139} tick={{ fontSize: 10, fill: '#626778' }} axisLine={false} tickLine={false} interval={0}/>
-          <YAxis yAxisId="counts" type="category" dataKey="countLabel" orientation="right" width={64} tick={{ fontSize: 10, fill: '#626778' }} axisLine={false} tickLine={false} interval={0}/>
+          <YAxis yAxisId="counts" type="category" dataKey="countLabel" orientation="right" width={64} tick={({ x, y, payload }) => <text x={x} y={y} dy={3} textAnchor="start" fontSize={10} fill="#626778">{payload.value}</text>} axisLine={false} tickLine={false} interval={0}/>
           <Tooltip content={<QualityTooltip/>} cursor={{ fill: '#f4f6fc' }} isAnimationActive={false}/>
           <Bar dataKey="value" barSize={10} radius={[0,3,3,0]} isAnimationActive={false} background={{ fill: '#f4f5f9', radius: 3 }}>
             {rows.map(row => <Cell key={row.domain} fill={row.total < 5 ? '#c6cffb' : '#1840ed'}/>)}
