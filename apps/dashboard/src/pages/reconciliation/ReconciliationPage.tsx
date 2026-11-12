@@ -504,6 +504,7 @@ export default function ReconciliationPage() {
                           <dt>Our parse finished</dt>
                           <dd>{time(g.crawler_parsed_at)}</dd>
                         </div>
+                        {g.crawler_reprocessed_at && <div><dt>Archive repaired</dt><dd>{time(g.crawler_reprocessed_at)}</dd></div>}
                         <div>
                           <dt>Publication in our article</dt>
                           <dd>{time(g.crawler_published_at)}</dd>

@@ -215,3 +215,7 @@ for the whole trial, process bounded batches, then pass `--cursor` from the retu
 `nextCursor` with a fresh audit filename until `truncated` is false. Empty verified
 story bodies stay incomplete. SQLite/API are authoritative; old append-only JSONL
 exports remain historical observations.
+
+Repairs also store `reprocessedAt` in the article payload, exposed as
+`crawler_reprocessed_at` in timing details. This preserves when corrected data
+became available, separately from the original fetch and first parse.
