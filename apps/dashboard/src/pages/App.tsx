@@ -1,3 +1,4 @@
+import { SnapshotAge } from "@/components/SnapshotAge";
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
@@ -432,6 +433,7 @@ export default function App() {
               {overview
                 ? `Updated ${time(overview.generatedAt)}`
                 : "Connecting…"}
+              <SnapshotAge generatedAt={overview?.generatedAt} cache={overview?.cache} />
               <span className="timezone">local time</span>
             </span>
           </div>

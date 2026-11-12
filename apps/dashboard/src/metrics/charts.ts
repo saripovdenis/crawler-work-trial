@@ -17,9 +17,9 @@ export class Charts {
     if (!Object.hasOwn(chartWindows, key)) throw new Error('Invalid chart window');
     const window = key as Window;
     const cached = this.cache.get(window);
-    if (cached && now >= cached.at && now - cached.at < 10_000) return cached.value;
+    if (cached && now >= cached.at && now - cached.at < 30_000) return cached.value;
     const value = this.query(window, now);
-    this.cache.set(window, { at: now, value });
+    this.cache.set(window, { at: Date.now(), value });
     return value;
   }
   private query(window: Window, end: number) {

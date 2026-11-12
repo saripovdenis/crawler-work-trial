@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import { resolve } from "node:path";
 import { sites } from "../../../../config/sites.js";
+import { LruCache } from "../../../../packages/core/src/lru.js";
+import { PARSER_VERSION } from "../../../../packages/core/src/parser-version.js";
 import { nextAllowed } from "../../../../packages/core/src/policy.js";
 
 type Row = Record<string, any>;
 export class Observatory {
   readonly db: DatabaseSync;
+  private details = new LruCache<string, Row>(64,8*1024*1024);
   private cached: { at: number; value: unknown } | undefined;
   constructor(readonly directory: string) {
     this.db = new DatabaseSync(resolve(directory, "crawler.sqlite"), {
@@ -22,7 +25,7 @@ export class Observatory {
     return this.db.prepare(sql).get(...params) || {};
   }
   overview() {
-    if (this.cached && Date.now() - this.cached.at < 10_000)
+    if (this.cached && Date.now() - this.cached.at < 30_000)
       return this.cached.value;
     const now = Date.now();
     const meta = Object.fromEntries(
@@ -140,7 +143,7 @@ export class Observatory {
       coverage: "Not measured",
       version: "1.0.0",
     };
-    this.cached = { at: now, value };
+    this.cached = { at: Date.now(), value };
     return value;
   }
   filter(params: URLSearchParams) {
@@ -234,33 +237,25 @@ export class Observatory {
     )
       return detail;
     try {
-      const bytes = gunzipSync(
-        await readFile(resolve(this.directory, "snapshots", body_hash + ".gz")),
-        { maxOutputLength: 5 * 1024 * 1024 },
-      );
-      const headers = this.one(
-        "SELECT headers FROM requests WHERE id=?",
-        id,
-      ).headers;
-      const charset =
-        JSON.parse(headers || "{}")["content-type"]?.match(
-          /charset=["']?([^;"'\s]+)/i,
-        )?.[1] || "utf-8";
+      const headers = this.one("SELECT headers FROM requests WHERE id=?", id).headers;
+      const charset = JSON.parse(headers || "{}")["content-type"]?.match(/charset=["']?([^;"'\s]+)/i)?.[1] || "utf-8";
+      const kind = this.one("SELECT kind FROM sources WHERE url=?", row.url).kind || (/xml|rss|sitemap/i.test(row.url) ? "sitemap" : "html");
+      const key=JSON.stringify([body_hash,row.url,kind,charset,PARSER_VERSION,Math.floor(Date.now()/86400000)]);
+      const cached=this.details.get(key);
+      if(cached)return {...detail,...cached};
+      const bytes=gunzipSync(await readFile(resolve(this.directory,"snapshots",body_hash+".gz")),{maxOutputLength:5*1024*1024});
       let body;
-      try {
-        body = new TextDecoder(charset).decode(bytes);
-      } catch {
-        body = bytes.toString("utf8");
-      }
-      const { discover } = await import("../../../../packages/core/src/parse.js");
-      const kind =
-        this.one("SELECT kind FROM sources WHERE url=?", row.url).kind ||
-        (/xml|rss|sitemap/i.test(row.url) ? "sitemap" : "html");
+      try {body=new TextDecoder(charset).decode(bytes);} catch {body=bytes.toString("utf8");}
+      const { discover }=await import("../../../../packages/core/src/parse.js");
       const result = discover(body, row.url, kind);
       detail.snapshotAvailable = true;
       detail.linkCount = result.articles.length;
       detail.links = result.articles.slice(0, 200);
       detail.sources = result.sources.slice(0, 30);
+      if(row.finished) {
+        const snapshot={snapshotAvailable:true,linkCount:detail.linkCount,links:detail.links,sources:detail.sources};
+        this.details.set(key,snapshot,Buffer.byteLength(JSON.stringify(snapshot)));
+      }
     } catch {
       detail.snapshotNote = "No readable discovery snapshot for this response.";
     }

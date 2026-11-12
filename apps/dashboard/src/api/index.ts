@@ -1,17 +1,9 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
-import { Observatory } from "../metrics/observability.js";
-import { Charts } from "../metrics/charts.js";
+import { DashboardCache } from './cache.js';
+const cache=new DashboardCache(resolve(process.env.CRAWLER_DATA_DIR || 'data'),resolve(process.env.RECONCILER_DB || 'data/reconciler.sqlite'));
 
-import { CoverageReader } from "../../../../packages/reconciliation/src/view.js";
-const coverage = new CoverageReader(resolve(process.env.RECONCILER_DB || "data/reconciler.sqlite"), resolve(process.env.CRAWLER_DATA_DIR || "data", "crawler.sqlite"));
-
-const charts = new Charts(resolve(process.env.CRAWLER_DATA_DIR || "data"));
-
-const observation = new Observatory(
-  resolve(process.env.CRAWLER_DATA_DIR || "data"),
-);
 const staticDir = resolve(process.env.DASHBOARD_DIST || "apps/dashboard/dist");
 const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -48,17 +40,18 @@ const server = createServer(async (req, res) => {
         res.end();
         return;
       }
-      let result: unknown;
-      if (url.pathname === "/api/reconciliation") result = coverage.get(url.searchParams);
-      else if (url.pathname === "/api/freshness") result = coverage.get(url.searchParams, Date.now(), true);
-      else if (url.pathname === "/api/charts/parsing-quality") result = charts.parsingQuality(url.searchParams);
-      else if (url.pathname === "/api/overview") result = observation.overview();
+      let result: any;
+      if (url.pathname === "/api/cache") result = await cache.metrics();
+      else if (url.pathname === "/api/reconciliation") result = await cache.coverage(url.searchParams);
+      else if (url.pathname === "/api/freshness") result = await cache.coverage(url.searchParams,true);
+      else if (url.pathname === "/api/charts/parsing-quality") result = await cache.get('charts',url.searchParams);
+      else if (url.pathname === "/api/overview") result = await cache.get('overview');
       else if (url.pathname === "/api/requests")
-        result = observation.requests(url.searchParams);
+        result = await cache.get('requests',url.searchParams);
       else if (url.pathname === "/api/articles")
-        result = observation.articles(url.searchParams);
+        result = await cache.get('articles',url.searchParams);
       else if (url.pathname === "/api/sources")
-        result = observation.sources(url.searchParams);
+        result = await cache.get('sources',url.searchParams);
       else if (/^\/api\/requests\/\d+$/.test(url.pathname)) {
         if (inspecting >= 2) {
           res.writeHead(429, { "Retry-After": "2" });
@@ -67,9 +60,7 @@ const server = createServer(async (req, res) => {
         }
         inspecting++;
         try {
-          result = await observation.requestDetail(
-            Number(url.pathname.split("/").at(-1)),
-          );
+          result = await cache.get('detail',new URLSearchParams(),Number(url.pathname.split('/').at(-1)));
         } finally {
           inspecting--;
         }
@@ -86,7 +77,7 @@ const server = createServer(async (req, res) => {
       }
       res.writeHead(200, {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "public, max-age=5",
+        "Cache-Control": "no-store",
       });
       res.end(req.method === "HEAD" ? undefined : JSON.stringify(result));
       return;
@@ -136,8 +127,6 @@ server.listen(
 for (const event of ["SIGTERM", "SIGINT"])
   process.on(event, () =>
     server.close(() => {
-      observation.db.close();
-      charts.db.close();
-      process.exit(0);
+      void cache.close().finally(()=>process.exit(0));
     }),
   );

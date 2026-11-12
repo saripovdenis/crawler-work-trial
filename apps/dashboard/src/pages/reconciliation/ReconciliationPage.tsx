@@ -1,3 +1,4 @@
+import { SnapshotAge } from "@/components/SnapshotAge";
 import { useEffect, useState } from "react";
 import {
   Activity,
@@ -210,6 +211,7 @@ export default function ReconciliationPage() {
             </label>
             <span className="reconcile-updated">
               Updated {time(data?.generatedAt || null)}
+              <SnapshotAge generatedAt={data?.generatedAt} cache={data?.cache} />
             </span>
           </div>
           {window === "10m" && (

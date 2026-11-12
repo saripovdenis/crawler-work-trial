@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { LruCache } from "../../core/src/lru.js";
 import { existsSync } from "node:fs";
 import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
@@ -159,46 +160,32 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
   return [...groups.values()];
 }
 const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 604800000 };
+export function coverageQuery(params: URLSearchParams) {
+  const window = params.get("window") || "1h", site = params.get("site") || "",
+    provider = params.get("provider") || "", matches = params.get("matches") || "all",
+    page = Number(params.get("page") || 1);
+  if (!Object.hasOwn(windows, window) || (site && !sites.some(s => s.domain === site))
+    || (provider && !providerIds.includes(provider as any)) || !["all", "matched", "unmatched"].includes(matches)
+    || !Number.isInteger(page) || page < 1 || page > 1000) throw new Error("Invalid reconciliation filter");
+  return { window: window as keyof typeof windows, site, provider, matches, page };
+}
+export function pageCoverage<T extends { groups: Group[] }>(snapshot: T, matches = "all", page = 1) {
+  const filtered = snapshot.groups.filter(g => matches === "all" || (matches === "matched" ? !!g.match : !g.match));
+  return { ...snapshot, matches, page, pageSize: 50, groups: filtered.slice((page - 1) * 50, page * 50),
+    groupCount: filtered.length, pageCount: Math.ceil(filtered.length / 50) };
+}
 export class CoverageReader {
-  private cached = new Map<
-    string,
-    { at: number; value: ReturnType<CoverageReader["query"]> }
-  >();
-  constructor(
-    readonly monitorPath: string,
-    readonly crawlerPath: string,
-  ) {}
+  private cached = new LruCache<string, { finished: number; value: ReturnType<CoverageReader["dataset"]> }>(32, 32*1024*1024);
+  constructor(readonly monitorPath: string, readonly crawlerPath: string) {}
   get(params: URLSearchParams, now = Date.now(), includeFreshness = false) {
-    const window = params.get("window") || "1h",
-      site = params.get("site") || "",
-      provider = params.get("provider") || "",
-      matches = params.get("matches") || "all",
-      page = Number(params.get("page") || 1);
-    if (
-      !Object.hasOwn(windows, window) ||
-      (site && !sites.some((s) => s.domain === site)) ||
-      (provider && !providerIds.includes(provider as any)) ||
-      !["all", "matched", "unmatched"].includes(matches) ||
-      !Number.isInteger(page) ||
-      page < 1 ||
-      page > 1000
-    )
-      throw new Error("Invalid reconciliation filter");
-    const key = JSON.stringify([window, site, provider, matches, page, includeFreshness]);
-    const cached = this.cached.get(key);
-    if (cached && now - cached.at < 15000) return cached.value;
-    const value = this.query(
-      window as keyof typeof windows,
-      site,
-      provider,
-      now,
-      matches,
-      page,
-      includeFreshness,
-    );
-    if (this.cached.size > 100) this.cached.clear();
-    this.cached.set(key, { at: now, value });
-    return value;
+    const q=coverageQuery(params), key=JSON.stringify([q.window,q.site,q.provider,includeFreshness]);
+    let cached=this.cached.get(key);
+    if (!cached || Date.now()-cached.finished>=60000) {
+      const value=this.dataset(q.window,q.site,q.provider,now,includeFreshness);
+      cached={value,finished:Date.now()};
+      this.cached.set(key,cached,Buffer.byteLength(JSON.stringify(value)));
+    }
+    return pageCoverage(cached.value,q.matches,q.page);
   }
   query(
     window: keyof typeof windows,
@@ -209,6 +196,9 @@ export class CoverageReader {
     page = 1,
     includeFreshness = false,
   ) {
+    return pageCoverage(this.dataset(window,site,provider,now,includeFreshness),matches,page);
+  }
+  dataset(window: keyof typeof windows, site: string, provider: string, now: number, includeFreshness = false) {
     const start = now - windows[window];
     const base = {
       window,
@@ -221,8 +211,8 @@ export class CoverageReader {
       generatedAt: now,
       sites: sites.map((s) => s.domain),
       cadenceMinutes: pollInterval / 60000,
-      matches,
-      page,
+      matches: "all",
+      page: 1,
       pageSize: 50,
     };
     if (!existsSync(this.monitorPath))
@@ -355,16 +345,8 @@ export class CoverageReader {
       const heartbeat = monitor
         .prepare("SELECT value FROM monitor_meta WHERE key='heartbeat'")
         .get()?.value;
-      const filtered = groups
-        .filter(
-          (g) =>
-            matches === "all" || (matches === "matched" ? !!g.match : !g.match),
-        )
-        .sort(
-          (a, b) => b.observed_at - a.observed_at || a.key.localeCompare(b.key),
-        );
-      const displayed = filtered.slice((page - 1) * 50, page * 50);
-      attachFetchTiming(crawler, includeFreshness ? groups : displayed);
+      groups.sort((a,b)=>b.observed_at-a.observed_at || a.key.localeCompare(b.key));
+      attachFetchTiming(crawler, groups);
       return {
         ...base,
         ready: true,
@@ -375,9 +357,9 @@ export class CoverageReader {
         unknownPublication,
         excludedNonArticles: excludedGroups.length,
         excludedGroups,
-        groups: includeFreshness ? displayed.map(group => ({ ...group, publication_timing: publicationTiming(group, provider || undefined) })) : displayed,
-        groupCount: filtered.length,
-        pageCount: Math.ceil(filtered.length / 50),
+        groups: includeFreshness ? groups.map(group => ({ ...group, publication_timing: publicationTiming(group, provider || undefined) })) : groups,
+        groupCount: groups.length,
+        pageCount: Math.ceil(groups.length / 50),
         matrix,
         providers,
         runs,
