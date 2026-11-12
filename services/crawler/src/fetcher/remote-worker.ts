@@ -1,11 +1,18 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gunzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { atomicWrite, acquireLock } from '../../../../packages/protocol/src/files.js';
 import { MAX_RESPONSE_BYTES, type Claim, type Assignment, type Completion } from '../../../../packages/protocol/src/index.js';
 import { fetchResponse } from './transports/transport.js';
+import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
+const stores=new Map<string,ArchiveStore>();
+const archiveStore=(directory:string)=> {
+  let store=stores.get(directory);
+  if(!store) {store=new ArchiveStore(directory);stores.set(directory,store);}
+  return store;
+};
 type Receipt={claim_id:string; task?:Assignment; dispatched?:boolean; completion?:Completion};
 export async function execute(task: Assignment, directory: string): Promise<Completion> {
   const result:Completion={lease_token:task.lease_token,started_at:null,finished_at:new Date().toISOString(),status:null,headers:{},body_hash:null,response_ref:null,bytes:0,error:null};
@@ -27,9 +34,7 @@ export async function execute(task: Assignment, directory: string): Promise<Comp
     let bytes=Buffer.concat(chunks);
     if(bytes[0]===0x1f&&bytes[1]===0x8b) bytes=gunzipSync(bytes,{maxOutputLength:task.max_response_bytes});
     const hash=createHash('sha256').update(bytes).digest('hex');
-    const ref=`snapshots/${hash}.gz`;
-    mkdirSync(resolve(directory,'snapshots'),{recursive:true});
-    atomicWrite(resolve(directory,ref),gzipSync(bytes));
+    const {ref}=archiveStore(directory).store(bytes,hash);
     result.body_hash=hash;result.response_ref=ref;result.bytes=bytes.length;
   } catch(e) {result.error=String(e).slice(0,4096);}
   result.finished_at=new Date().toISOString();return result;
@@ -40,6 +45,14 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>20) throw new Error('Invalid concurrency');
   mkdirSync(resolve(directory,'receipts'),{recursive:true});
   const release=acquireLock(resolve(directory,'receipts','fetch-worker.pid'));
+  const store=archiveStore(directory),metricsPath=resolve(directory,'receipts','archive-cache-metrics.json');
+  try {
+    const previous=JSON.parse(readFileSync(metricsPath,'utf8'));
+    for(const key of Object.keys(store.metrics) as (keyof typeof store.metrics)[])
+      if(Number.isSafeInteger(previous[key]) && previous[key]>=0)store.metrics[key]=previous[key];
+  }catch {}
+  const report=()=>{try{atomicWrite(metricsPath,JSON.stringify({generatedAt:Date.now(),...store.metrics}));}catch(error){console.error('Archive metrics:',String(error));}};
+  const metricsTimer=setInterval(report,30_000);metricsTimer.unref();
   const identity=resolve(directory,'receipts','worker-id');
   if(!existsSync(identity)) atomicWrite(identity,randomUUID());
   const worker_id=readFileSync(identity,'utf8');
@@ -80,5 +93,5 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
         unlinkSync(path);
       } catch(e) {console.error('Worker will retry receipt:',String(e));await sleep(1000);}
     }
-  }));} finally {release();}
+  }));} finally {clearInterval(metricsTimer);report();release();}
 }
