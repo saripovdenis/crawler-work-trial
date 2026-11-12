@@ -19,12 +19,16 @@ not advance source poll counts or insert an article; durable processing must suc
 ## Freshness comparison
 
 `/freshness` and read-only `GET /api/freshness` reuse Coverage's publication
-windows (`1h`, `24h`, `7d`), domain/provider filters, matching and exclusions.
+windows (`10m`, `1h`, `24h`, `7d`), domain/provider filters, matching and exclusions.
 The article timing inspector moved from Coverage to this page. No provider calls
 or crawler changes are involved.
 
 - Delay is successful **fetch completion minus provider timestamp**, in ms.
-  Choose provider publication or first observation by our monitor. Negative is earlier.
+  The default is article publication → our download finish. Publication is the
+  article date reported by the provider, not its indexing time. The secondary
+  observation view compares our download with our own provider poll; a negative
+  offset does not prove we beat the provider. Explicit `baseline=observed` links
+  still open that view. Provider bars measure our crawler on different samples.
 - Fetch completion comes from the existing timing resolver: worker receipt when
   available, legacy request finish otherwise. Article `fetched` is parse completion
   and is never substituted when a fetch timestamp is missing.

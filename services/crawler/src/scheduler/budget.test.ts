@@ -24,7 +24,7 @@ test('budget survives reopen, charges unfinished attempts, and preserves server 
     const first = reserve(700_000);
     assert.ok(first.id);
     db.close(); db = open(path);
-    assert.deepEqual(reserve(701_000), { id: undefined, due: 760_020 });
+    assert.deepEqual(reserve(701_000), { id: undefined, due: 765_020 });
     db.prepare('UPDATE requests SET finished=701000').run();
     assert.equal(reserve(710_000).due, 731_020);
     assert.ok(reserve(731_020).id);
@@ -52,6 +52,6 @@ test('two processes cannot both reserve the same request slot', async () => {
   try {
     const results = await Promise.all([child(), child()]);
     assert.equal(results.filter(r => r.id !== undefined).length, 1);
-    assert.equal(results.find(r => r.id === undefined)!.due, 760_020);
+    assert.equal(results.find(r => r.id === undefined)!.due, 765_020);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

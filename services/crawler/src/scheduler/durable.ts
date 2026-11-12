@@ -85,7 +85,7 @@ export class Scheduler {
         if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL", site.domain)) continue;
         // Avoid scanning large candidate queues before this domain can spend a slot.
         if (slotDue(this.db, site.domain, site.requestsPerMinute, 0, now) > now) continue;
-        const baseline = this.one("SELECT count(*) n FROM candidates WHERE domain=? AND priority=0 AND state<>'pending'", site.domain)!.n;
+        const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8)", site.domain)!.n;
         const articleTurns=Number(this.one('SELECT value FROM meta WHERE key=?','article-turns:'+site.domain)?.value||0);
         const catchup=articleTurns%5===4;
         const order=catchup?'c.discovered ASC,c.rowid ASC':"CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC,c.discovered DESC,c.rowid ASC";

@@ -99,3 +99,21 @@ conservatively miss canonical aliases; quiet sites retain normal polling.
 Status reporting also groups article counts once rather than scanning the table
 40 times. Counts matched exactly on the production copy (158 ms versus 3.5 ms
 locally), reducing startup and heartbeat work without a schema change.
+
+The archive-repair receipt lookup now loads one batch index instead of rescanning
+request history per article. It selected identical request IDs for 200 production-copy
+records (566 ms versus 16 ms locally); four repair tests pass. The first production
+dry-run found 183 repairable records out of 200; unproven text/dates remain flagged.
+
+Further CPU checks found redundant Readability work when structured text, title,
+and description already supply every output. Skipping it produced identical
+fields on six archived controls (about 3–9 ms instead of 26–133 ms locally).
+Initial-sample eligibility now stops counting at eight, preserving the same
+selection decision while avoiding scans of thousands of completed candidates.
+
+After CPU fixes, the residual dispatch failures were in the Python startup path:
+measured imports took 1,008–1,237 ms on the VM, on top of queue/receipt latency.
+The dispatch allowance is now five seconds and uncertain-request horizon 35s.
+Per-site limits, 20s HTTP timeout and 60s leases are unchanged. Tests prove spacing
+for a start near five seconds, rejection beyond it, and charged crash/restart
+reservations. All 81 tests pass.
