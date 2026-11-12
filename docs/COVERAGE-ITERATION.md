@@ -95,3 +95,7 @@ Validation: 77 tests passed, plus typecheck, boundary check, frontend build,
 production-copy process startup/restart, and desktop/mobile UI checks. Tests use
 archives/simulators, never publisher requests. Source-yield attribution can
 conservatively miss canonical aliases; quiet sites retain normal polling.
+
+Status reporting also groups article counts once rather than scanning the table
+40 times. Counts matched exactly on the production copy (158 ms versus 3.5 ms
+locally), reducing startup and heartbeat work without a schema change.

@@ -99,7 +99,7 @@ export function repairPublication(options: RepairOptions) {
       const duplicate=!!db.prepare('SELECT 1 FROM articles WHERE fingerprint=? AND canonical_url<>?').get(fingerprint,row.canonical_url);
       const classification=classify(published,row.started,row.discovered,duplicate,
         next.isArticle===true && typeof next.text==='string' && next.text.length>=200 && typeof next.title==='string' && next.title.length>0);
-      const nextPayload=JSON.stringify({...next,classification});
+      const nextPayload=JSON.stringify({...next,classification,reprocessedAt:new Date(now).toISOString()});
       result.proposed++;
       if (!options.apply) continue;
       // Write-ahead audit: a planned record can be undone only if the DB equals
