@@ -53,10 +53,10 @@ export function summary() {
       (SELECT count(*) FROM requests r WHERE r.domain=s.domain AND (r.error IS NOT NULL OR r.status>=400)) AS failed_requests,
       (SELECT count(*) FROM sources x WHERE x.domain=s.domain AND x.errors<5) AS active_sources,
       (SELECT count(*) FROM candidates c WHERE c.domain=s.domain AND c.state='pending') AS pending,
-      (SELECT count(*) FROM articles a WHERE a.domain=s.domain) AS parsed,
-      (SELECT count(*) FROM articles a WHERE a.domain=s.domain AND a.classification='new') AS new_articles,
+      coalesce(a.parsed,0) AS parsed,
+      coalesce(a.new_articles,0) AS new_articles,
       (SELECT error FROM requests r WHERE r.domain=s.domain AND r.error IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_error
-      FROM sites s ORDER BY s.domain`),
+      FROM sites s LEFT JOIN (SELECT domain,count(*) parsed,sum(classification='new') new_articles FROM articles GROUP BY domain) a ON a.domain=s.domain ORDER BY s.domain`),
     classifications: all('SELECT classification,count(*) AS count FROM articles GROUP BY classification'),
     coverage: 'Unknown: no independent ground-truth article list yet.',
     delay: all(`SELECT domain, count(*) AS samples,

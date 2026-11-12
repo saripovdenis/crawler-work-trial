@@ -47,6 +47,7 @@ test('publication repair is dry-run by default; apply preserves fetch/discovery,
     assert.equal(applied.updated,1);
     const after=f.row(a.canonical),oldPayload=JSON.parse(a.payload),newPayload=JSON.parse(String(after.payload));
     assert.equal(after.published,'2026-11-12T08:25:00.000Z');assert.equal(after.classification,'new');
+    assert.equal(newPayload.reprocessedAt,new Date(now).toISOString());
     assert.equal(after.discovered,before.discovered);assert.equal(after.fetched,before.fetched);assert.equal(after.fingerprint,before.fingerprint);
     for(const key of ['title','text','description','socialTags','discoveredAt','fetchedAt','sourceUrl'])assert.deepEqual(newPayload[key],oldPayload[key]);
     const record=JSON.parse(readFileSync(audit,'utf8').trim());

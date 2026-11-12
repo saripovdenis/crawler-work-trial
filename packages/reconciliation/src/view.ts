@@ -40,6 +40,7 @@ export type Group = {
   crawler_published_at: number | null;
   crawler_discovered_at: number | null;
   crawler_parsed_at: number | null;
+  crawler_reprocessed_at: number | null;
   crawler_fetch_finished_at: number | null;
   crawler_fetch_time_source:
     | "worker_receipt"
@@ -144,6 +145,7 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
       crawler_published_at: date(article?.published),
       crawler_discovered_at: article?.discovered ?? null,
       crawler_parsed_at: article?.fetched ?? null,
+      crawler_reprocessed_at: date(article?.reprocessed_at),
       crawler_fetch_finished_at: null,
       crawler_fetch_time_source: null,
       crawler_request_id: null,
@@ -254,7 +256,7 @@ export class CoverageReader {
         AND (?='' OR site=?) AND (?='' OR provider=?)`).get(start,now,site,site,provider,provider)!.n);
       const articles = crawler
         .prepare(
-          `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url FROM articles WHERE (?='' OR domain=?)`,
+          `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`,
         )
         .all(site, site) as Row[];
       const allGroups = matchSightings(rows.slice(0, 50000), articles);
