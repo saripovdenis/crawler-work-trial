@@ -92,6 +92,8 @@ test(`${endpoint} HTTP endpoint supports all windows, validates filters and neve
       assert.equal(body.cadenceMinutes, 10);
       if (endpoint === "freshness") {
         assert.equal(body.freshness.overall.missingTiming, 1);
+        assert.equal(body.freshness.comparison.count, 0);
+        assert.deepEqual(body.freshness.comparison.series.map((s: any) => s.id), ["crawler", "google", "exa"]);
         assert.equal(body.freshness.overall.observed.p50, null);
         assert.equal(body.freshness.domains.length, 20);
       }
