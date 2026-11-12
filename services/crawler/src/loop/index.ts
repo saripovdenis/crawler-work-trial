@@ -1,9 +1,9 @@
 import { writeFileSync, readFileSync, unlinkSync, openSync, closeSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { sites } from '../config/sites.js';
-import { db, dataDir, run, summary } from '../packages/db/src/store.js';
+import { sites } from '../../../../config/sites.js';
+import { db, dataDir, run, summary } from '../../../../packages/db/src/store.js';
 import { worker, log } from './worker.js';
-import { controller, pause, signal } from './http.js';
+import { controller, pause, signal } from '../fetcher/http.js';
 
 const lock = resolve(dataDir, 'crawler.pid');
 try {

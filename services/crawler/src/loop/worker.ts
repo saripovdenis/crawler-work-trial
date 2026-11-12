@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { get, run, dataDir } from '../packages/db/src/store.js';
-import { request, signal, pause, Denied } from './http.js';
-import { discover, parseArticle } from '../packages/core/src/parse.js';
-import { classify, domainFor } from '../packages/core/src/policy.js';
-import type { SiteConfig } from '../packages/core/src/types.js';
+import { get, run, dataDir } from '../../../../packages/db/src/store.js';
+import { request, signal, pause, Denied } from '../fetcher/http.js';
+import { discover, parseArticle } from '../../../../packages/core/src/parse.js';
+import { classify, domainFor } from '../../../../packages/core/src/policy.js';
+import type { SiteConfig } from '../../../../packages/core/src/types.js';
 
 type SourceRow = { url: string; kind: string; polls: number; errors: number; depth: number; etag: string | null; modified: string | null };
 type Candidate = { url: string; discovered: number; published_hint: string | null; attempts: number };

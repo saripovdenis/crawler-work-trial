@@ -10,7 +10,7 @@
         "--import",
         "tsx"
       ],
-      "program": "${workspaceFolder}/src/index.ts",
+      "program": "${workspaceFolder}/services/crawler/src/loop/index.ts",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "skipFiles": [

@@ -15,7 +15,7 @@ if (cmd === 'start') {
   else {
     mkdirSync('logs', { recursive: true });
     const log = openSync('logs/crawler.log', 'a');
-    const child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log], env: process.env });
+    const child = spawn(process.execPath, ['--import', 'tsx', 'services/crawler/src/loop/index.ts'], { cwd: process.cwd(), detached: true, stdio: ['ignore', log, log], env: process.env });
     child.unref(); closeSync(log);
     await sleep(1500);
     if (!existsSync(lock)) throw new Error('Crawler did not start; inspect logs/crawler.log');
@@ -32,7 +32,7 @@ if (cmd === 'start') {
   else console.log('Not running');
 } else if (cmd === 'status') {
   console.log(running ? `Running: PID ${pid}` : 'Not running');
-  const { summary, db } = await import('../packages/db/src/store.js');
+  const { summary, db } = await import('../../../../packages/db/src/store.js');
   const status = summary();
   console.log(`Started: ${status.firstStartedAt || 'never'} | Heartbeat: ${status.heartbeat || 'none'}`);
   console.table(status.sites); console.table(status.classifications);

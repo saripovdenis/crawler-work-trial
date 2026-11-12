@@ -4,17 +4,17 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createRequire } from 'node:module';
-import { db, get, run, dataDir } from '../packages/db/src/store.js';
-import { domainFor } from '../packages/core/src/policy.js';
-import { sites } from '../config/sites.js';
-import { reserveSlot } from './budget.js';
-import { fetchResponse, USER_AGENT } from './transport.js';
+import { db, get, run, dataDir } from '../../../../packages/db/src/store.js';
+import { domainFor } from '../../../../packages/core/src/policy.js';
+import { sites } from '../../../../config/sites.js';
+import { reserveSlot } from '../scheduler/budget.js';
+import { fetchResponse, USER_AGENT } from './transports/transport.js';
 
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
 
 export const controller = new AbortController();
 export const signal = controller.signal;
-export { USER_AGENT } from './transport.js';
+export { USER_AGENT } from './transports/transport.js';
 export const pause = (ms: number) => sleep(ms, undefined, { signal });
 export class Denied extends Error {}
 type ResponseData = { url: string; status: number; body: string; headers: Headers };

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 test('transport accounts for robots, redirects and failures; respects robots and Retry-After', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'crawler-test-'));
   process.env.CRAWLER_DATA_DIR = dir;
-  const { db, run, all, get } = await import('../packages/db/src/store.js');
+  const { db, run, all, get } = await import('../../../../packages/db/src/store.js');
   const { request, Denied } = await import('./http.js');
   const original = globalThis.fetch;
   const calls: string[] = [];

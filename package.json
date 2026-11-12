@@ -7,12 +7,12 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx services/crawler/src/loop/index.ts",
     "check": "tsc --noEmit",
-    "start": "tsx src/cli.ts start",
-    "stop": "tsx src/cli.ts stop",
-    "status": "tsx src/cli.ts status",
-    "test": "tsx --test src/*.test.ts packages/core/src/*.test.ts",
+    "start": "tsx services/crawler/src/loop/cli.ts start",
+    "stop": "tsx services/crawler/src/loop/cli.ts stop",
+    "status": "tsx services/crawler/src/loop/cli.ts status",
+    "test": "tsx --test src/*.test.ts packages/core/src/*.test.ts services/crawler/src/scheduler/*.test.ts services/crawler/src/fetcher/*.test.ts services/crawler/src/fetcher/transports/*.test.ts",
     "dashboard:api": "tsx src/api.ts",
     "dashboard:build": "npm --prefix dashboard run build"
   },

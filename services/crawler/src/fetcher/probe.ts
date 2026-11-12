@@ -5,11 +5,11 @@ import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { db, get, run, dataDir } from '../packages/db/src/store.js';
-import { domainFor } from '../packages/core/src/policy.js';
-import { reserveSlot } from './budget.js';
-import { sites } from '../config/sites.js';
-import { discover, parseArticle } from '../packages/core/src/parse.js';
+import { db, get, run, dataDir } from '../../../../packages/db/src/store.js';
+import { domainFor } from '../../../../packages/core/src/policy.js';
+import { reserveSlot } from '../scheduler/budget.js';
+import { sites } from '../../../../config/sites.js';
+import { discover, parseArticle } from '../../../../packages/core/src/parse.js';
 import { assertProbeWindow } from './probe-safety.js';
 
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
@@ -55,7 +55,7 @@ async function reserve(url: string, profile: Profile) {
 async function transport(url: string, profile: Profile): Promise<Response> {
   if (profile !== 'node') {
     return new Promise((accept, reject) => {
-      const child = execFile(process.env.PROBE_PYTHON || 'python3', [resolve('scripts/cffi-fetch.py')],
+      const child = execFile(process.env.PROBE_PYTHON || 'python3', [resolve('services/fetcher-impersonate/cffi-fetch.py')],
         { timeout: 25_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
           if (error) return reject(error);
           try {

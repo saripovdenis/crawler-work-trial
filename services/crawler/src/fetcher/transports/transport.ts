@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { domainFor } from '../packages/core/src/policy.js';
+import { domainFor } from '../../../../../packages/core/src/policy.js';
 
 // Intentionally hardcoded. All subdomains use the same transport and budget.
-const chromeSites = new Set(['hoodline.com', 'eleconomista.es']);
+import { chromeSites } from '../../../../../config/profiles.js';
 export const usesChromeProfile = (url: string) => chromeSites.has(domainFor(url) || '');
 export const USER_AGENT = 'ExaTrialCrawler/0.1';
 
@@ -14,7 +14,7 @@ export async function fetchResponse(url: string, headers: Record<string, string>
   });
   return new Promise((resolve, reject) => {
     const child = execFile(process.env.CRAWLER_PYTHON || 'python3',
-      [fileURLToPath(new URL('../scripts/cffi-fetch.py', import.meta.url))],
+      [fileURLToPath(new URL('../../../../fetcher-impersonate/cffi-fetch.py', import.meta.url))],
       { signal, timeout: 25_000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
         if (error) return reject(error);
         try {
