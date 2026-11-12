@@ -133,3 +133,44 @@ test('provider comparison uses the same cohort and publication baseline for all 
   assert.equal(anomalous.negativeTiming, 1);
   assert.equal(anomalous.series[0].p50, -1000);
 });
+
+test('simple freshness uses the earliest known date before windowing, and table delays match card inputs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'publication-delay-'));
+  const monitor = new MonitorStore(join(dir, 'monitor.sqlite'));
+  const db = new DatabaseSync(join(dir, 'crawler.sqlite'));
+  const now = Date.parse('2026-11-12T12:00:00Z');
+  try {
+    db.exec("CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,fetched INTEGER,discovered INTEGER); CREATE TABLE requests(id INTEGER PRIMARY KEY,url TEXT,domain TEXT,purpose TEXT,status INTEGER,error TEXT,finished INTEGER)");
+    const external = (id: string, provider: string, published: number) => {
+      const item = sighting('bbc.com', `https://bbc.com/news/${id}`, `A distinct headline for article ${id}`, published)!;
+      monitor.db.prepare('INSERT INTO external_sightings(provider,site,item_key,url_raw,url_key,title,title_key,provider_published_at,observed_at,last_observed_at,run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(provider, 'bbc.com', id, item.url_raw, item.url_key, item.title, item.title_key, published, now - 1000, now - 1000, null);
+    };
+    const fetched = (id: string, finished: number) => {
+      const url = `https://bbc.com/news/${id}`;
+      db.prepare("INSERT INTO articles VALUES (?,'bbc.com',?,'new',?,?,?)").run(url, new Date(now - 120000).toISOString(), JSON.stringify({ title: `A distinct headline for article ${id}` }), finished + 1000, finished - 1000);
+      db.prepare("INSERT INTO requests(url,domain,purpose,status,finished) VALUES (?,'bbc.com','article',200,?)").run(url, finished);
+    };
+    external('old', 'google', now - 7200000); external('old', 'exa', now - 60000); fetched('old', now - 30000);
+    external('both', 'google', now - 120000); external('both', 'exa', now - 60000); fetched('both', now - 30000);
+    external('single', 'google', now - 80000); fetched('single', now - 10000);
+    external('missing', 'exa', now - 100000);
+    const reader = new CoverageReader(join(dir, 'monitor.sqlite'), join(dir, 'crawler.sqlite'));
+    const result = reader.get(new URLSearchParams('window=1h'), now, true);
+    assert.ok('freshness' in result && result.freshness);
+    assert.equal(result.groupCount, 3);
+    assert.deepEqual(result.freshness.overall.published, { count: 2, p50: 70000, p75: 90000, p90: 90000 });
+    const rows = result.groups as Array<typeof result.groups[number] & { publication_timing: { publishedAt: number; fetchFinishedAt: number | null; delayMs: number | null; providers: string[] } }>;
+    assert.equal(rows.some(g => g.url.endsWith('/old')), false);
+    const both = rows.find(g => g.url.endsWith('/both'))!.publication_timing;
+    assert.equal(both.publishedAt, now - 120000);
+    assert.deepEqual(both.providers, ['google']);
+    assert.equal(both.delayMs, both.fetchFinishedAt! - both.publishedAt);
+    assert.equal(rows.find(g => g.url.endsWith('/missing'))!.publication_timing.delayMs, null);
+    const coverage = reader.get(new URLSearchParams('window=1h'), now);
+    assert.equal(coverage.groupCount, 4); // existing Coverage window behavior is unchanged
+    const all = reader.get(new URLSearchParams('window=24h'), now, true);
+    assert.equal(all.groupCount, 4);
+    assert.equal(monitor.db.prepare('SELECT count(*) n FROM provider_runs').get()!.n, 0);
+  } finally { monitor.db.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
+});

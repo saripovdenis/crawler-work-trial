@@ -16,55 +16,32 @@ This conservatively includes reporting delay in the existing request-duration me
 Article `fetched` still records successful parse completion. Fetch completion alone does
 not advance source poll counts or insert an article; durable processing must succeed.
 
-## Freshness comparison
+## Publication-to-fetch delay
 
-`/freshness` and read-only `GET /api/freshness` reuse Coverage's publication
-windows (`10m`, `1h`, `24h`, `7d`), domain/provider filters, matching and exclusions.
-The article timing inspector moved from Coverage to this page. No provider calls
-or crawler changes are involved.
+Freshness shows P50/P75/P90 of **successful download finish minus the earliest
+publication date reported by Google News or Exa**. One provider is enough; an
+article does not have to appear in both. Provider observation times are not part
+of this metric. It measures download completion, not parse completion.
 
-- Delay is successful **fetch completion minus provider timestamp**, in ms.
-  The default is article publication → our download finish. Publication is the
-  article date reported by the provider, not its indexing time. The secondary
-  observation view compares our download with our own provider poll; a negative
-  offset does not prove we beat the provider. Explicit `baseline=observed` links
-  still open that view. Provider bars measure our crawler on different samples.
-- Fetch completion comes from the existing timing resolver: worker receipt when
-  available, legacy request finish otherwise. Article `fetched` is parse completion
-  and is never substituted when a fetch timestamp is missing.
-- p50/p75/p90 use nearest rank, `ceil(p * n)`, on sorted signed delays. Empty samples
-  return null. Results cover the full filtered sample, independent of table pagination
-  and its matched/unmatched filter.
-- Overall and domain figures deduplicate the provider union, using the earliest
-  timestamp of each kind among selected providers per article. Each provider's
-  figures use that provider's timestamps only. Repeated sightings do not add weight.
-- Unmatched and unknown-fetch-time records are excluded from percentiles, with
-  separate counts. Incomplete and probable title matches remain included and labeled.
-  This measures fetched articles, not complete-content latency or total coverage.
-- First observation is an upper bound on provider availability, not exact indexing
-  time. Ten-minute polling, outages and quota limits can make apparent leads larger.
-- Responses share Coverage's 15-second memory cache, on a separate cache key.
-  UI refreshes every 30 seconds while visible. Both databases are opened read-only.
+The page has three cards and a paginated URL table. Every row exposes its earliest
+publication, the provider(s) reporting that date, linked fetch finish, delay and
+status. Cards use the full timed sample, independent of pagination or the table's
+fetched/not-fetched filter. Missing downloads or timestamps never become zero.
+Incomplete parses and probable title matches remain included and visibly labeled.
 
-### Shared-article timing comparison
+The read-only `/api/freshness` retains its existing fields and adds
+`groups[].publication_timing` with `publishedAt`, `providers`, `fetchFinishedAt`
+and `delayMs`. The same helper supplies table values and percentile inputs.
+`freshness.overall.published` contains the three nearest-rank percentiles.
 
-The primary Freshness chart compares **our download completion**, **our first
-Google News observation** and **our first Exa observation**. It has one row each
-for P50, P75 and P90. These are elapsed times after publication, not a chart of
-provider indexing speed. Provider observation can lag actual availability by a
-poll interval or more. No extra provider calls are made.
+Windows (`10m`, `1h`, `24h`, `7d`) use each article's earliest known provider
+publication. Freshness groups historical provider records before applying the
+window, so an older date outside the window is not lost when the other provider
+reports a newer date. The existing 50,000-record query cap remains; truncation is
+flagged. Coverage's separate window behavior remains unchanged.
 
-`freshness.comparison` uses only articles matched to a successful crawler download
-with an observation from every selected provider and at least one known publication
-date. All series use that exact same cohort. Each article's baseline is the earliest
-publication time reported by the selected providers. A provider-specific baseline
-is deliberately not subtracted from each series: differing dates would create a
-false timing advantage. Differences in reported dates, probable title matches,
-incomplete parses and negative timing anomalies are counted explicitly. Missing
-fetches, observations and dates are excluded with separate counts, never zero-filled.
-
-Percentiles use nearest rank on per-article elapsed times over the full filtered
-sample before pagination. They are not differences of independently calculated
-percentiles. A single-provider filter compares our crawler and that provider on
-their shared cohort. An empty cohort shows no percentage or timing result. The
-existing crawler-only metrics remain in an expandable diagnostics section.
+This is a sample of provider-reported articles, not all crawler downloads or a
+complete census. Negative delays remain visible as timestamp anomalies. All times
+are UTC; polling, quotas, database schemas and crawler behavior are unchanged.
+The prior comparison fields remain in the API for compatibility but are not shown
+on the simplified page.

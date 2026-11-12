@@ -7,6 +7,21 @@ export function percentiles(values: number[]) {
   return { count: sorted.length, p50: at(.5), p75: at(.75), p90: at(.9) };
 }
 
+/** The same per-article values feed the cards and the URL table. */
+export function publicationTiming(group: Group, provider?: string) {
+  const timings = group.provider_timings.filter(t => !provider || t.provider === provider);
+  const dates = timings.flatMap(t => t.published_at !== null && Number.isFinite(t.published_at) ? [t.published_at] : []);
+  const publishedAt = dates.length ? Math.min(...dates) : null;
+  const fetchFinishedAt = group.match && group.crawler_fetch_finished_at !== null && Number.isFinite(group.crawler_fetch_finished_at)
+    ? group.crawler_fetch_finished_at : null;
+  return {
+    publishedAt,
+    providers: [...new Set(timings.filter(t => publishedAt !== null && t.published_at === publishedAt).map(t => t.provider))],
+    fetchFinishedAt,
+    delayMs: publishedAt !== null && fetchFinishedAt !== null ? fetchFinishedAt - publishedAt : null,
+  };
+}
+
 export function freshnessSummary(groups: Group[], provider?: string) {
   const selected = provider ? groups.filter(g => g.providers.includes(provider)) : groups;
   const observed: number[] = [], published: number[] = [];
@@ -15,13 +30,13 @@ export function freshnessSummary(groups: Group[], provider?: string) {
     if (!group.match || group.crawler_fetch_finished_at === null) continue;
     const timings = group.provider_timings.filter(t => !provider || t.provider === provider);
     const observations = timings.map(t => t.observed_at).filter(Number.isFinite);
-    const publications = timings.flatMap(t => t.published_at === null ? [] : [t.published_at]).filter(Number.isFinite);
+    const publication = publicationTiming(group, provider);
     if (!observations.length) continue;
     timed++;
     if (group.incomplete) incomplete++;
     if (group.match === "title") probable++;
     observed.push(group.crawler_fetch_finished_at - Math.min(...observations));
-    if (publications.length) published.push(group.crawler_fetch_finished_at - Math.min(...publications));
+    if (publication.delayMs !== null) published.push(publication.delayMs);
   }
   const matched = selected.filter(g => g.match).length;
   return {
