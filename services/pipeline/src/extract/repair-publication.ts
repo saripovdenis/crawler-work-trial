@@ -36,7 +36,9 @@ export function repairPublication(options: RepairOptions) {
   const result = { apply: !!options.apply, windowStart: now - windowMs, windowEnd: now, limit, truncated: false, nextCursor: null as string | null, eligible: 0, proposed: 0, updated: 0, skipped: {} as Record<string, number> };
   const skip = (reason: string) => { result.skipped[reason] = (result.skipped[reason] || 0) + 1; };
   try {
-    db.exec('PRAGMA busy_timeout=2000');
+    // Live crawler writes can briefly hold the writer lock; only this maintenance
+    // connection waits longer. It never changes the crawler's lock settings.
+    db.exec(`PRAGMA busy_timeout=${options.apply?30000:2000}`);
     if (!options.apply) db.exec('PRAGMA query_only=ON');
     const durable = !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='attempt_assignments'").get();
     const articles = db.prepare(`SELECT a.*,s.started FROM articles a JOIN sites s ON s.domain=a.domain
