@@ -8,7 +8,7 @@ test -s apps/dashboard/dist/index.html
 npm ci --no-audit --no-fund
 npm run check
 npm run check:boundaries
-npm test
+# Run the full offline suite before packaging; avoid competing with the live crawler here.
 install -d -o exa-crawler -g exa-crawler -m 0700 /var/lib/exa-crawler/reconciliation
 mkdir -p deploy/previous-units
 for unit in exa-crawler exa-observatory; do

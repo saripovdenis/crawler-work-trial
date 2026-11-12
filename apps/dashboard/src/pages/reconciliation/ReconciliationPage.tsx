@@ -18,11 +18,8 @@ import "../charts/charts.css";
 import "./reconciliation.css";
 type Row = Record<string, any>;
 const names: Record<string, string> = {
-  gdelt: "GDELT",
   google: "Google News",
   exa: "Exa",
-  newsapi: "NewsAPI.ai",
-  serper: "Serper",
 };
 const number = (v: number) => new Intl.NumberFormat("en-US").format(v);
 const time = (v: number | null) =>
@@ -270,13 +267,11 @@ export default function ReconciliationPage() {
                         ? "Quota reached"
                         : p?.enabled
                           ? "Scheduled"
-                          : id === "serper"
-                            ? "Manual only"
-                            : p?.note === "API key required"
-                              ? "Needs key"
-                              : p
-                                ? "Paused"
-                                : "Waiting"}
+                          : p?.note === "API key required"
+                            ? "Needs key"
+                            : p
+                              ? "Paused"
+                              : "Waiting"}
                     </Badge>
                   </header>
                   <p>{p?.note || "30-minute polls · staggered requests"}</p>

@@ -65,7 +65,7 @@ test("upsert preserves first observation, overlap catches outages, provider cool
     s = new MonitorStore(f.path);
   try {
     s.configure(
-      providerConfig({}).filter((c) => c.id === "gdelt"),
+      providerConfig({}).filter((c) => c.id === "google"),
       now,
     );
     const first = s.claim(now)!;
@@ -159,7 +159,7 @@ test("coverage agrees with SQL, handles all filters, excludes pending/failures, 
       "pending",
     );
     s.configure(
-      providerConfig({}).filter((c) => c.id === "gdelt"),
+      providerConfig({}).filter((c) => c.id === "google"),
       now - 3600000,
     );
     const job = s.claim(now - 3600000)!;
@@ -259,6 +259,42 @@ test("audit import waits for grace, skips known articles/candidates, persists cu
     assert.equal(db.prepare("SELECT count(*) n FROM crawl_tasks").get()!.n, 2);
   } finally {
     db.close();
+    store.db.close();
+    f.close();
+  }
+});
+
+test("only Google and Exa are configured; retired provider history cannot restart polling", () => {
+  const configs = providerConfig({
+    EXA_API_KEY: "test",
+    NEWSAPI_AI_KEY: "ignored",
+    SERPER_API_KEY: "ignored",
+  });
+  assert.deepEqual(
+    configs.map((c) => c.id),
+    ["google", "exa"],
+  );
+  const f = fixture(),
+    store = new MonitorStore(f.path);
+  try {
+    store.db.exec(
+      "INSERT INTO provider_state VALUES ('gdelt',1,1000,0,0,NULL);INSERT INTO provider_schedule VALUES ('gdelt','bbc.com',0,NULL);INSERT INTO provider_runs(provider,site,started_at,status) VALUES ('gdelt','bbc.com',0,'ok')",
+    );
+    store.configure(configs, now);
+    assert.equal(
+      store.db
+        .prepare("SELECT enabled FROM provider_state WHERE provider='gdelt'")
+        .get()!.enabled,
+      0,
+    );
+    assert.notEqual(store.claim(now)?.provider, "gdelt");
+    assert.equal(
+      store.db
+        .prepare("SELECT count(*) n FROM provider_runs WHERE provider='gdelt'")
+        .get()!.n,
+      1,
+    );
+  } finally {
     store.db.close();
     f.close();
   }

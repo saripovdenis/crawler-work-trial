@@ -170,7 +170,7 @@ export class CoverageReader {
       crawler.exec("PRAGMA query_only=ON;PRAGMA busy_timeout=2000");
       const rows = monitor
         .prepare(
-          `SELECT * FROM external_sightings WHERE observed_at>=? AND observed_at<? AND (?='' OR site=?) AND (?='' OR provider=?) ORDER BY observed_at DESC LIMIT 50001`,
+          `SELECT * FROM external_sightings WHERE provider IN ('google','exa') AND observed_at>=? AND observed_at<? AND (?='' OR site=?) AND (?='' OR provider=?) ORDER BY observed_at DESC LIMIT 50001`,
         )
         .all(start, now, site, site, provider, provider) as Row[];
       const articles = crawler
@@ -236,7 +236,7 @@ export class CoverageReader {
         }));
       const providers = monitor
         .prepare(
-          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p`,
+          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p WHERE p.provider IN ('google','exa')`,
         )
         .all(now - 86400000) as Row[];
       for (const p of providers) {
@@ -246,14 +246,14 @@ export class CoverageReader {
       }
       const runs = monitor
         .prepare(
-          `SELECT * FROM provider_runs WHERE (?='' OR site=?) AND (?='' OR provider=?) ORDER BY id DESC LIMIT 100`,
+          `SELECT * FROM provider_runs WHERE provider IN ('google','exa') AND (?='' OR site=?) AND (?='' OR provider=?) ORDER BY id DESC LIMIT 100`,
         )
         .all(site, site, provider, provider) as Row[];
       const truncated =
         rows.length > 50000 ||
         !!monitor
           .prepare(
-            `SELECT 1 FROM provider_runs WHERE started_at>=? AND truncated=1 AND (?='' OR site=?) AND (?='' OR provider=?) LIMIT 1`,
+            `SELECT 1 FROM provider_runs WHERE provider IN ('google','exa') AND started_at>=? AND truncated=1 AND (?='' OR site=?) AND (?='' OR provider=?) LIMIT 1`,
           )
           .get(start, site, site, provider, provider);
       const heartbeat = monitor

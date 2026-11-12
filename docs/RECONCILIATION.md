@@ -1,7 +1,7 @@
 # External coverage reconciliation
 
 `services/monitor` runs independently of the crawler and dashboard. It polls each
-configured domain every 30 minutes, staggered by six seconds per provider. Three
+configured domain every 30 minutes, staggered by six seconds per provider. Two
 bounded request slots prevent one slow provider from blocking all others. A slow
 round can finish late; the dashboard exposes each call and its timestamps.
 
@@ -27,8 +27,7 @@ and probable-title counts are shown separately.
 
 The selected 1h/24h/7d window uses `external_sightings.observed_at`: when this
 monitor first saw the item at that provider. It is not publication time or proof
-of when that provider first indexed it. GDELT `seendate` and NewsAPI `dateTime`
-are stored separately as provider timestamps; only publication fields are used
+of when that provider first indexed it. Only publication fields are used
 for title matching. All persisted timestamps and display times are UTC.
 
 New unmatched items receive a 30-minute grace period. Afterwards they appear as
@@ -40,28 +39,25 @@ sightings (flagging truncation) and displays at most 200 unmatched/recent record
 
 | Provider | Credential | Request | Default lifetime cap |
 |---|---|---|---|
-| GDELT | none | DOC ArtList, max 250 | none |
 | Google News | none | unofficial RSS search, typically max 100 | none |
 | Exa | `EXA_API_KEY` | search only, 10 results, no content fetching | 1,000 calls |
-| NewsAPI.ai | `NEWSAPI_AI_KEY` | newest 100 articles, one page | 2,000 calls |
-| Serper | `SERPER_API_KEY` | adapter only; excluded from recurring polls | 100 calls |
 
-Serper is reserved for manual spot checks; no dashboard action spends its quota.
+Only Google News and Exa are scheduled. Previously configured providers remain
+disabled; their historical quota records are retained. No account signup is needed.
 Search caps mean **sampling**. Exa deliberately requests ten results to keep
 cost down; it is not a complete per-domain benchmark. Full pages are marked
 truncated even when the provider cannot confirm that more results exist.
-NewsAPI's date-level query is filtered to the exact publication window locally.
+Results are filtered to the exact publication window locally.
 The lookback overlaps the last success by one hour, capped at 24 hours after an
 outage. Google uses a rounded-up hour lookback and remains best effort.
 
-20 domains × 48 polls/day = **960 calls/day/provider**. A 2,000-search trial lasts
-about two days at that rate, not 25. Exa's 1,000-call cap protects this initial
-trial; it does not automatically buy more credits. Current account quotas and
+20 domains × 48 polls/day = **960 calls/day/provider**. Exa's 1,000-call cap
+protects this initial trial; it does not automatically buy more credits. Current account quotas and
 pricing must be checked before raising these limits.
 
-Daily defaults are 1,000 calls per rolling 24 hours (Serper 10). Override with
+Daily defaults are 1,000 calls per rolling 24 hours. Override with
 `MONITOR_<PROVIDER>_DAILY_LIMIT` or `MONITOR_<PROVIDER>_TOTAL_LIMIT`, where PROVIDER
-is `GDELT`, `GOOGLE`, `EXA`, `NEWSAPI` or `SERPER`. A zero daily limit disables
+is `GOOGLE` or `EXA`. A zero daily limit disables
 calls; a zero total limit means no lifetime cap. Lifetime usage counts all
 reservations in this database, including across key rotation. It is not the
 provider's account balance; usage by other apps is unknown.
@@ -112,7 +108,7 @@ RECONCILER_DB=data/reconciler.sqlite npm run scheduler
 `GET /api/reconciliation?window=24h&site=bbc.com&provider=exa` is read-only.
 Unknown filters return 400. `/reconciliation` is the public dashboard page.
 
-Production: build the frontend locally, upload a clean release plus its dist,
+Production: run `npm test` and build the frontend locally, then upload a clean release plus its dist,
 install credentials in `/etc/exa-reconciler.env` (root-owned 0600), then run
 `sudo bash deploy/deploy-reconciler.sh /opt/exa-crawler/reconcile-COMMIT`.
 The script preserves active unit settings, updates scheduler/API code, and adds
@@ -127,7 +123,5 @@ provider shapes, time filtering, restart quotas, matching, empty samples, audit
 provenance/budgets and API filters. Live provider smoke tests are charged and
 retained in the same ledger shipped to production.
 
-Sources: [Exa search](https://exa.ai/docs/reference/search),
-[GDELT DOC](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/),
-[NewsAPI docs](https://newsapi.ai/documentation?tab=searchArticles),
-[NewsAPI plans](https://newsapi.ai/plans). Google RSS is unofficial and may change.
+Source: [Exa search](https://exa.ai/docs/reference/search).
+Google RSS is unofficial and may change.

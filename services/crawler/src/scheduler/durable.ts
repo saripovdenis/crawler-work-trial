@@ -216,7 +216,9 @@ export class Scheduler {
       else if(status>=400) {this.fail(task,`robots.txt HTTP ${status}`);return;}
       else if(/<html[\s>]/i.test(body)) {this.fail(task,'robots.txt returned HTML');return;}
       this.run('INSERT OR REPLACE INTO robots(origin,body,expires) VALUES (?,?,?)',task.origin,body,now+ttl);
-      for(const map of robotsParser(task.origin+'/robots.txt',body).getSitemaps().slice(0,6)) {
+      const auditParent=task.parent_id && this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose==='audit';
+      // Robots fetched only for an external audit must not seed crawler discovery.
+      for(const map of auditParent?[]:robotsParser(task.origin+'/robots.txt',body).getSitemaps().slice(0,6)) {
         if(domainFor(map)===task.domain) { this.run('INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,?)',map,task.domain,'sitemap'); this.ensureTask(map,'discovery'); }
       }
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);return;

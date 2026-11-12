@@ -1,10 +1,7 @@
 import { domainFor } from "../../../packages/core/src/policy.js";
 const allowed = new Map([
-  ["api.gdeltproject.org", "/api/v2/doc/doc"],
   ["news.google.com", "/rss/search"],
   ["api.exa.ai", "/search"],
-  ["eventregistry.org", "/api/v1/article/getArticles"],
-  ["google.serper.dev", "/news"],
 ]);
 export function validateProviderUrl(raw: string) {
   const u = new URL(raw);

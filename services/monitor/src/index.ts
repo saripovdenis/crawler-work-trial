@@ -68,7 +68,7 @@ async function worker() {
         if (
           e instanceof ProviderError &&
           [401, 402, 403].includes(e.status) &&
-          ["exa", "newsapi", "serper"].includes(job.provider)
+          job.provider === "exa"
         )
           store.db
             .prepare(
@@ -86,7 +86,7 @@ async function worker() {
 // claim still applies the same persisted per-provider spacing and quota cap.
 try {
   const results = await Promise.allSettled(
-    Array.from({ length: 3 }, () => worker()),
+    Array.from({ length: 2 }, () => worker()),
   );
   const failure = results.find((r) => r.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;

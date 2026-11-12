@@ -29,7 +29,7 @@ test("reconciliation HTTP endpoint supports all windows, validates filters and n
   db.close();
   const monitor = new MonitorStore(join(dir, "reconciler.sqlite"));
   monitor.configure(
-    providerConfig({}).filter((c) => c.id === "gdelt"),
+    providerConfig({}).filter((c) => c.id === "google"),
     now - 1000,
   );
   const job = monitor.claim(now - 1000)!;

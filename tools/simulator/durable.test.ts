@@ -168,3 +168,13 @@ test('external audit uses durable budget, remains low priority, and never create
     assert.equal(f.db.prepare("SELECT state FROM crawl_tasks WHERE id=?").get(Number(failed.task_id))!.state,'processed');
   }finally{f.close();}
 });
+
+test('robots fetched for an external audit cannot seed discovery sources',()=>{
+  const f=fixture();try{
+    f.db.exec("DELETE FROM robots;UPDATE crawl_tasks SET next_crawl_at=999999999;INSERT INTO crawl_tasks(domain,url,purpose,next_crawl_at,current_url) VALUES ('bbc.com','https://www.bbc.com/external','audit',0,'https://www.bbc.com/external')");
+    const task=f.scheduler.claim('w','audit-robots').task!;assert.equal(task.purpose,'robots');
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'User-agent: *\nAllow: /\nSitemap: https://www.bbc.com/external-sitemap.xml'));f.scheduler.process();
+    assert.equal(f.db.prepare('SELECT count(*) n FROM sources').get()!.n,1);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,0);
+  }finally{f.close();}
+});

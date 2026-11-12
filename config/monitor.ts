@@ -1,10 +1,4 @@
-export const providerIds = [
-  "gdelt",
-  "google",
-  "exa",
-  "newsapi",
-  "serper",
-] as const;
+export const providerIds = ["google", "exa"] as const;
 export type ProviderId = (typeof providerIds)[number];
 export const pollInterval = 30 * 60_000;
 export const editions: Record<
@@ -35,29 +29,13 @@ export function providerConfig(env: NodeJS.ProcessEnv = process.env) {
   };
   return providerIds.map((id) => ({
     id,
-    key:
-      id === "exa"
-        ? env.EXA_API_KEY
-        : id === "newsapi"
-          ? env.NEWSAPI_AI_KEY
-          : id === "serper"
-            ? env.SERPER_API_KEY
-            : undefined,
-    daily: cap(
-      `MONITOR_${id.toUpperCase()}_DAILY_LIMIT`,
-      id === "serper" ? 10 : 1000,
-    ),
+    key: id === "exa" ? env.EXA_API_KEY : undefined,
+    daily: cap(`MONITOR_${id.toUpperCase()}_DAILY_LIMIT`, 1000),
     lifetime: cap(
       `MONITOR_${id.toUpperCase()}_TOTAL_LIMIT`,
-      id === "newsapi" ? 2000 : id === "exa" ? 1000 : id === "serper" ? 100 : 0,
+      id === "exa" ? 1000 : 0,
     ),
-    enabled:
-      !["exa", "newsapi", "serper"].includes(id) ||
-      !!(id === "exa"
-        ? env.EXA_API_KEY
-        : id === "newsapi"
-          ? env.NEWSAPI_AI_KEY
-          : env.SERPER_API_KEY),
-    scheduled: id !== "serper",
+    enabled: id === "google" || !!env.EXA_API_KEY,
+    scheduled: true,
   }));
 }

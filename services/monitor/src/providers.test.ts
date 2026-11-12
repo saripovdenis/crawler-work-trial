@@ -6,21 +6,7 @@ import { parseResults, collect } from "./providers.js";
 import { validateProviderUrl, providerRequest } from "./client.js";
 const stamp = "2026-11-12T08:00:00Z";
 const url = "https://www.bbc.com/news/articles/test";
-test("provider parsers filter publishers, retain provenance and distinguish timestamps", () => {
-  const gdelt = parseResults(
-    "gdelt",
-    "bbc.com",
-    JSON.stringify({
-      articles: [
-        { url, title: "BBC story", seendate: "20261112T080000Z" },
-        { url: "https://evilbbc.com/no", title: "wrong" },
-      ],
-    }),
-  );
-  assert.equal(gdelt.items.length, 1);
-  assert.equal(gdelt.items[0].provider_published_at, null);
-  assert.equal(gdelt.items[0].provider_first_seen_at, Date.parse(stamp));
-  assert.equal(parseResults("gdelt", "bbc.com", "{}").items.length, 0);
+test("provider parsers filter publishers, retain publication timestamps and provenance", () => {
   const exa = parseResults(
     "exa",
     "bbc.com",
@@ -31,27 +17,6 @@ test("provider parsers filter publishers, retain provenance and distinguish time
   );
   assert.equal(exa.truncated, true);
   assert.equal(exa.providerCost, 0.007);
-  const news = parseResults(
-    "newsapi",
-    "bbc.com",
-    JSON.stringify({
-      articles: {
-        totalResults: 500,
-        results: [{ url, title: "Story", dateTime: stamp }],
-      },
-    }),
-  );
-  assert.equal(news.truncated, true);
-  assert.equal(news.items[0].provider_published_at, null);
-  assert.equal(news.items[0].provider_first_seen_at, Date.parse(stamp));
-  assert.equal(
-    parseResults(
-      "serper",
-      "bbc.com",
-      JSON.stringify({ news: [{ link: url, title: "Story", date: stamp }] }),
-    ).items.length,
-    1,
-  );
   const google = parseResults(
     "google",
     "bbc.com",
@@ -81,6 +46,9 @@ test("provider client rejects all publisher domains, alternate destinations and 
     "https://u:p@api.exa.ai/search",
     "https://api.exa.ai:444/search",
     "https://127.0.0.1/search",
+    "https://eventregistry.org/api/v1/article/getArticles",
+    "https://api.gdeltproject.org/api/v2/doc/doc",
+    "https://google.serper.dev/news",
   ])
     assert.throws(() => validateProviderUrl(destination));
   const calls: any[] = [];
@@ -95,26 +63,24 @@ test("provider client rejects all publisher domains, alternate destinations and 
   assert.equal(calls.length, 1);
   assert.equal(calls[0][1].redirect, "manual");
 });
-test("NewsAPI exact time filter excludes old same-day results and makes only one request", async (t) => {
+test("Exa exact time filter excludes old same-day results and makes only one request", async (t) => {
   let calls = 0;
   t.mock.method(globalThis, "fetch", async (_input: any, init: any) => {
     calls++;
-    assert.equal(JSON.parse(init.body).articlesCount, 100);
+    assert.equal(JSON.parse(init.body).numResults, 10);
     return Response.json({
-      articles: {
-        results: [
-          { url, title: "Recent", dateTimePub: stamp },
-          {
-            url: url + "old",
-            title: "Old",
-            dateTimePub: "2026-11-12T01:00:00Z",
-          },
-        ],
-      },
+      results: [
+        { url, title: "Recent", publishedDate: stamp },
+        {
+          url: url + "old",
+          title: "Old",
+          publishedDate: "2026-11-12T01:00:00Z",
+        },
+      ],
     });
   });
   const result = await collect(
-    "newsapi",
+    "exa",
     "bbc.com",
     "test",
     Date.parse(stamp) - 3600000,

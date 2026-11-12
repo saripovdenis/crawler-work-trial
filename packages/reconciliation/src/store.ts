@@ -27,6 +27,12 @@ export class MonitorStore {
   `);
   }
   configure(configs: Config[], now = Date.now()) {
+    // Keep removed providers' history and quota ledger, but never schedule them.
+    this.db
+      .prepare(
+        "UPDATE provider_state SET enabled=0,note='Removed from configuration'",
+      )
+      .run();
     for (const c of configs) {
       this.db
         .prepare(
@@ -37,11 +43,7 @@ export class MonitorStore {
           Number(c.enabled && c.scheduled),
           c.daily,
           c.lifetime,
-          !c.enabled
-            ? "API key required"
-            : !c.scheduled
-              ? "Manual spot checks only"
-              : null,
+          !c.enabled ? "API key required" : null,
         );
       sites.forEach((site, i) =>
         this.db
@@ -57,9 +59,7 @@ export class MonitorStore {
       )
       .run(now);
   }
-  claim(
-    now = Date.now(),
-  ): {
+  claim(now = Date.now()): {
     id: number;
     provider: ProviderId;
     site: string;
