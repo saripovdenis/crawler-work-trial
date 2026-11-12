@@ -8,7 +8,7 @@ RequiresMountsFor=/var/lib/exa-crawler
 Type=simple
 User=exa-crawler
 Group=exa-crawler
-WorkingDirectory=/opt/exa-observatory/v0.2.0
+WorkingDirectory=/opt/exa-observatory/v1.0.0
 Environment=NODE_ENV=production
 Environment=CRAWLER_DATA_DIR=/var/lib/exa-crawler/data
 Environment=HOST=127.0.0.1

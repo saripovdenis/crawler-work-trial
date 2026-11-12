@@ -94,7 +94,7 @@ Set `CRAWLER_DATA_DIR` in the process environment to change storage; `.env` is n
 Do not run multiple instances with different data directories against the same sites:
 their independent request budgets would add together.
 
-## v0.2: public observability
+## v1.0: public observability
 
 Dashboard: https://exa-crawler.34.68.179.149.sslip.io
 
@@ -118,9 +118,12 @@ and does not claim they were all newly discovered in that poll. API responses om
 raw headers and full article bodies. Filters never make upstream requests.
 
 `deploy/` contains the service, HTTPS configuration, and VM installation script.
-The release is installed at `/opt/exa-observatory/v0.2.0`; the existing live database
+The v1.0.0 deployment scripts install at `/opt/exa-observatory/v1.0.0`; the existing live database
 is read at `/var/lib/exa-crawler/data/crawler.sqlite`. The public hostname uses the
 VM's reserved regional IP via sslip.io; a custom domain can replace it in Caddyfile.
+
+Publishing a Git tag does not update the running VM. Deploy this release separately
+to activate v1.0.0; the existing v0.2.0 service continues until then.
 
 Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
 `/api/requests/123`, `/api/articles?fresh=true&q=news`, `/api/sources`.

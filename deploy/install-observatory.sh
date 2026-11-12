@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Run on the existing crawler VM as root after extracting the release.
-cd /opt/exa-observatory/v0.2.0
+cd /opt/exa-observatory/v1.0.0
 npm ci --no-audit --no-fund
 install -m 0644 deploy/exa-observatory.service /etc/systemd/system/exa-observatory.service
 systemctl daemon-reload

@@ -242,7 +242,7 @@ export default function App() {
             <Globe2 size={17} />
           </span>
           <div>
-            News discovery<span>Work trial / v0.2</span>
+            News discovery<span>Work trial / v1.0</span>
           </div>
           <ChevronRight size={14} />
         </div>

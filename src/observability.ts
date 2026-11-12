@@ -138,7 +138,7 @@ export class Observatory {
       series,
       sites: perSite,
       coverage: "Not measured",
-      version: "0.2.0",
+      version: "1.0.0",
     };
     this.cached = { at: now, value };
     return value;
