@@ -12,9 +12,9 @@
     "start": "tsx services/crawler/src/loop/cli.ts start",
     "stop": "tsx services/crawler/src/loop/cli.ts stop",
     "status": "tsx services/crawler/src/loop/cli.ts status",
-    "test": "tsx --test src/*.test.ts packages/core/src/*.test.ts services/crawler/src/scheduler/*.test.ts services/crawler/src/fetcher/*.test.ts services/crawler/src/fetcher/transports/*.test.ts",
-    "dashboard:api": "tsx src/api.ts",
-    "dashboard:build": "npm --prefix dashboard run build"
+    "test": "tsx --test apps/dashboard/src/api/*.test.ts apps/dashboard/src/metrics/*.test.ts packages/core/src/*.test.ts services/crawler/src/scheduler/*.test.ts services/crawler/src/fetcher/*.test.ts services/crawler/src/fetcher/transports/*.test.ts",
+    "dashboard:api": "tsx apps/dashboard/src/api/index.ts",
+    "dashboard:build": "npm --prefix apps/dashboard run build"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",

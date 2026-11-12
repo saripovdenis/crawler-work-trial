@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { Charts, chartWindows } from './charts.js';
+import { Charts, chartWindows } from '../metrics/charts.js';
 
 test('parsing-quality endpoint: all windows, boundaries, persisted definition, zero domain, cache and read-only DB', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'charts-'));
@@ -49,7 +49,7 @@ test('parsing-quality endpoint: all windows, boundaries, persisted definition, z
     });
   });
   writeFileSync(join(dir,'index.html'), '<html>fixture</html>');
-  const child = spawn(process.execPath,['--import','tsx','src/api.ts'], {
+  const child = spawn(process.execPath,['--import','tsx','apps/dashboard/src/api/index.ts'], {
     env:{...process.env,PORT:String(port),CRAWLER_DATA_DIR:dir,DASHBOARD_DIST:dir},stdio:['ignore','pipe','pipe'],
   });
   try {

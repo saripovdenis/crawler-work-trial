@@ -2,8 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import { resolve } from "node:path";
-import { sites } from "../config/sites.js";
-import { nextAllowed } from "../packages/core/src/policy.js";
+import { sites } from "../../../../config/sites.js";
+import { nextAllowed } from "../../../../packages/core/src/policy.js";
 
 type Row = Record<string, any>;
 export class Observatory {
@@ -252,7 +252,7 @@ export class Observatory {
       } catch {
         body = bytes.toString("utf8");
       }
-      const { discover } = await import("../packages/core/src/parse.js");
+      const { discover } = await import("../../../../packages/core/src/parse.js");
       const kind =
         this.one("SELECT kind FROM sources WHERE url=?", row.url).kind ||
         (/xml|rss|sitemap/i.test(row.url) ? "sitemap" : "html");

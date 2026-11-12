@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App.tsx";
-import ChartsPage from "./charts/ChartsPage.tsx";
+import App from "./pages/App.tsx";
+import ChartsPage from "./pages/charts/ChartsPage.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

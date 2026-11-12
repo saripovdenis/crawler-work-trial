@@ -1,15 +1,15 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
-import { Observatory } from "./observability.js";
-import { Charts } from "./charts.js";
+import { Observatory } from "../metrics/observability.js";
+import { Charts } from "../metrics/charts.js";
 
 const charts = new Charts(resolve(process.env.CRAWLER_DATA_DIR || "data"));
 
 const observation = new Observatory(
   resolve(process.env.CRAWLER_DATA_DIR || "data"),
 );
-const staticDir = resolve(process.env.DASHBOARD_DIST || "dashboard/dist");
+const staticDir = resolve(process.env.DASHBOARD_DIST || "apps/dashboard/dist");
 const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",

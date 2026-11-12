@@ -11,9 +11,10 @@
     "skipLibCheck": true
   },
   "include": [
-    "src/**/*.ts",
     "packages/**/*.ts",
     "config/**/*.ts",
-    "services/**/*.ts"
+    "services/**/*.ts",
+    "apps/dashboard/src/api/**/*.ts",
+    "apps/dashboard/src/metrics/**/*.ts"
   ]
 }
