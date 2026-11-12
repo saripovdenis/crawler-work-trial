@@ -149,3 +149,22 @@ test('independent scheduler processes cannot reserve two assignments for one dom
   try{const result=await Promise.all([claim('a'),claim('b')]);assert.equal(result.filter(x=>x.task).length,1);assert.equal(f.db.prepare('SELECT count(*) n FROM requests').get()!.n,1);}
   finally{f.close();}
 });
+
+test('external audit uses durable budget, remains low priority, and never creates discoveries',()=>{
+  const f=fixture();try{
+    f.db.prepare("INSERT INTO crawl_tasks(domain,url,purpose,next_crawl_at,current_url) VALUES ('bbc.com',?,'audit',0,?)").run('https://www.bbc.com/news/audit','https://www.bbc.com/news/audit');
+    const source=f.scheduler.claim('w','source-first').task!;assert.equal(source.purpose,'discovery');
+    f.scheduler.complete(source.attempt_id,response(f,source,304,''));f.scheduler.process();
+    f.db.exec("UPDATE crawl_tasks SET next_crawl_at=999999999 WHERE purpose='discovery'");
+    assert.equal(f.scheduler.claim('w','still-budgeted').task,null);
+    f.advance();const audit=f.scheduler.claim('w','audit').task!;assert.equal(audit.purpose,'audit');
+    f.scheduler.complete(audit.attempt_id,response(f,audit,200,readFileSync(new URL('../../fixtures/article.html',import.meta.url),'utf8')));f.scheduler.process();
+    assert.equal(f.db.prepare('SELECT count(*) n FROM articles').get()!.n,0);assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,0);
+    assert.equal(f.db.prepare("SELECT count(*) n FROM requests WHERE purpose='audit'").get()!.n,1);
+    f.db.prepare("INSERT INTO crawl_tasks(domain,url,purpose,next_crawl_at,current_url) VALUES ('bbc.com',?,'audit',0,?)").run('https://www.bbc.com/news/another','https://www.bbc.com/news/another');
+    f.advance();assert.equal(f.scheduler.claim('w','hour-cap').task,null);
+    f.advance(3600000);const failed=f.scheduler.claim('w','later').task!;assert.equal(failed.purpose,'audit');
+    f.scheduler.complete(failed.attempt_id,{...response(f,failed),error:'timeout'});f.scheduler.process();
+    assert.equal(f.db.prepare("SELECT state FROM crawl_tasks WHERE id=?").get(Number(failed.task_id))!.state,'processed');
+  }finally{f.close();}
+});

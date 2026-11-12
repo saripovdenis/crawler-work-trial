@@ -59,6 +59,9 @@ export class Scheduler {
           ORDER BY CASE WHEN s.polls=0 AND s.errors=0 THEN 0 ELSE 1 END,s.next_poll ASC LIMIT 1`,site.domain,now);
         const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
         let task = source && (turns>=2 || !candidate) ? source : candidate;
+        // Audits only use otherwise idle slots, at most one starting per domain/hour.
+        if (!task) task = this.one(`SELECT * FROM crawl_tasks WHERE domain=? AND purpose='audit' AND state='ready' AND next_crawl_at<=?
+          AND (hops>0 OR NOT EXISTS(SELECT 1 FROM requests WHERE domain=? AND purpose='audit' AND started>?)) ORDER BY id LIMIT 1`,site.domain,now,site.domain,now-3600_000);
         // A robots chain must finish before its waiting parent can be dispatched.
         const robots = this.one("SELECT * FROM crawl_tasks WHERE domain=? AND purpose='robots' AND state='ready' AND next_crawl_at<=? ORDER BY id LIMIT 1",site.domain,now);
         if (robots) task = robots;
@@ -143,6 +146,10 @@ export class Scheduler {
   }
   fail(task: Row, error: string, denied=false) {
     const now=this.clock();
+    if(task.purpose==='audit') {
+      this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
+      return;
+    }
     if(task.purpose==='robots') {
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
       const parent=this.one('SELECT * FROM crawl_tasks WHERE id=?',task.parent_id);
@@ -213,6 +220,11 @@ export class Scheduler {
         if(domainFor(map)===task.domain) { this.run('INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,?)',map,task.domain,'sitemap'); this.ensureTask(map,'discovery'); }
       }
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);return;
+    }
+    // Audit responses are archived and visible in the request log, never discoveries.
+    if(task.purpose==='audit') {
+      this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
+      return;
     }
     const site=sites.find(s=>s.domain===task.domain)!;
     const started=this.one('SELECT started FROM sites WHERE domain=?',site.domain)!.started;

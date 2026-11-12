@@ -4,6 +4,7 @@ import { db, dataDir, summary } from '../../../../packages/db/src/store.js';
 import { sites } from '../../../../config/sites.js';
 import { acquireLock } from '../../../../packages/protocol/src/files.js';
 import { Scheduler } from './durable.js';
+import { importAudits } from '../../../../packages/reconciliation/src/audits.js';
 import { schedulerServer } from './server.js';
 // Same lock as the legacy loop: never start both against this database.
 const release=acquireLock(resolve(dataDir,'crawler.pid'));
@@ -21,10 +22,13 @@ const report=()=> {
 };
 const processing=setInterval(()=> {try {scheduler.recover();}catch(e){console.error('scheduler recovery failed',e);}},1000);
 const heartbeat=setInterval(report,30_000);
+const audits=setInterval(()=> {try {
+  if(process.env.RECONCILER_DB)importAudits(db,resolve(process.env.RECONCILER_DB));
+}catch(e){console.error('audit import failed',String(e));}},30_000);
 report();
 server.listen(Number(process.env.SCHEDULER_PORT||4319),'127.0.0.1',()=>console.log('Scheduler listening on loopback',server.address()));
 let stopping=false;
 for(const event of ['SIGINT','SIGTERM']) process.on(event,()=> {
-  if(stopping)return;stopping=true;clearInterval(processing);clearInterval(heartbeat);
+  if(stopping)return;stopping=true;clearInterval(processing);clearInterval(heartbeat);clearInterval(audits);
   server.close(()=> {report();db.close();release();});
 });
