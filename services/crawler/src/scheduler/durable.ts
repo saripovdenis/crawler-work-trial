@@ -14,21 +14,31 @@ import { ArchiveParser, type ParseResult } from './parse-worker.js';
 import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
 import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
 import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js';
+import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
+import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
 const UA = 'ExaTrialCrawler/0.1';
+const MAPPING_VERSION=createHash('sha256').update(PARSER_VERSION).update(readFileSync(new URL('./durable.ts',import.meta.url))).digest('hex');
 type Row = Record<string, any>;
 export class ContractError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
 export class Scheduler {
   private parser: ArchiveParser;
   private robotsCache: RobotsCache;
+  private aliases:ArticleAliases;
+  private archives:ArchiveStore;
   private processingJob?: Promise<void>;
   private articlesSinceDiscovery = 3;
   private articleParses = 0;
   private closing=false;
   private metricsStartedAt=Date.now();
-  private reuse={mappingSkips:0,avoidedDownloads:0,archivedReparses:0,aliasesRecorded:0};
+  private lastBacklog?:{at:number;count:number};
+  private reuse={mappingSkips:0,avoidedDownloads:0,pendingArchiveWaits:0,archivedReparses:0,aliasesRecorded:0};
   private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number }>();
-  constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) { migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db); this.refreshSourceQuality(); }
+  constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) {
+    migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
+    this.archives=new ArchiveStore(directory);this.aliases=new ArticleAliases(db);
+    this.reuse.aliasesRecorded=this.aliases.backfill();this.refreshSourceQuality();
+  }
   // Once per minute, outside claim transactions. Count successfully parsed NEW
   // articles, not raw links. A canonical redirect can conservatively undercount.
   refreshSourceQuality() {
@@ -63,8 +73,12 @@ export class Scheduler {
   }
   cacheMetrics() {
     const now=this.clock();
-    return {generatedAt:now,since:this.metricsStartedAt,parserVersion:PARSER_VERSION,extraction:this.parser.metrics,...this.reuse,
-      backlog:this.all("SELECT t.purpose,count(*) count,min(r.finished) oldest FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' GROUP BY t.purpose"),
+    const backlog=this.all("SELECT t.purpose,count(*) count,min(r.finished) oldest FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' GROUP BY t.purpose");
+    const total=backlog.reduce((sum,row)=>sum+Number(row.count),0),previous=this.lastBacklog;
+    this.lastBacklog={at:now,count:total};
+    return {generatedAt:now,since:this.metricsStartedAt,parserVersion:PARSER_VERSION,mappingVersion:MAPPING_VERSION,extraction:this.parser.metrics,...this.reuse,
+      backlog,backlogTotal:total,backlogChange:previous?total-previous.count:null,
+      backlogGrowthPerMinute:previous && now>previous.at?(total-previous.count)*60000/(now-previous.at):null,
       requestsLastMinute:this.one('SELECT count(*) count FROM requests WHERE started>=?',now-60_000)!.count};
   }
   one(sql: string, ...params: any[]): Row | undefined { return this.statement(sql).get(...params); }
@@ -120,6 +134,7 @@ export class Scheduler {
           this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",candidate.id);
           continue;
         }
+        if(candidate && this.reuseArticle(candidate,now))continue;
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
@@ -212,6 +227,45 @@ export class Scheduler {
     const item=this.one(`SELECT * FROM ${purpose==='article'?'candidates':'sources'} WHERE url=?`,url)!;
     this.run(`INSERT OR IGNORE INTO crawl_tasks(domain,url,purpose,priority,next_crawl_at,current_url) VALUES (?,?,?,?,?,?)`,item.domain,url,purpose,item.priority||0,purpose==='article'?item.next_attempt:item.next_poll,url);
     if(purpose==='article') this.run("UPDATE crawl_tasks SET priority=? WHERE url=? AND purpose='article' AND state='ready'",item.priority,url);
+  }
+  private reuseArticle(task:Row,now:number):boolean {
+    const target=this.aliases.resolve(task.current_url,now);
+    if(!target)return false;
+    const article=this.one(`SELECT canonical_url FROM articles WHERE canonical_url=? AND classification<>'incomplete'
+      AND json_extract(payload,'$.isArticle')=1 AND length(json_extract(payload,'$.text'))>=200`,target);
+    if(article) {
+      this.run("UPDATE candidates SET state='done',last_error=NULL WHERE url=?",task.url);
+      this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
+      this.reuse.avoidedDownloads++;return true;
+    }
+    const response=this.one(`SELECT a.*,r.url response_url,r.body_hash,t.state owner_state,t.id owner_id,t.url owner_url
+      FROM requests r JOIN attempt_assignments a ON a.request_id=r.id JOIN crawl_tasks t ON t.id=a.task_id
+      WHERE r.url IN (?,?) AND r.purpose='article' AND r.status=200 AND r.error IS NULL
+        AND r.body_hash IS NOT NULL ORDER BY r.id DESC LIMIT 1`,task.current_url,target);
+    if(!response)return false;
+    const defer=()=> {
+      this.run('UPDATE crawl_tasks SET next_crawl_at=? WHERE id=?',now+5000,task.id);
+      this.run('UPDATE candidates SET next_attempt=? WHERE url=?',now+5000,task.url);
+    };
+    if(response.processing==='pending') {
+      // A failed extraction must not indefinitely prevent a deliberate refetch.
+      if(response.process_error && response.process_errors>0)return false;
+      defer();this.reuse.pendingArchiveWaits++;return true;
+    }
+    const replayKey='alias-reparse:'+response.request_id;
+    if(response.owner_state!=='processed' || response.processing!=='done'
+      || this.one('SELECT value FROM meta WHERE key=?',replayKey)?.value===PARSER_VERSION)return false;
+    let bytes:number;
+    try {bytes=JSON.parse(response.completion).bytes;}catch{return false;}
+    if(!this.archives.valid(response.body_hash,bytes))return false;
+    // Reprocess once per parser version before spending another download. The
+    // original receipt, fetch/discovery times and budget charge remain untouched.
+    this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',replayKey,PARSER_VERSION);
+    this.run("UPDATE attempt_assignments SET processing='pending',process_after=0,process_error=NULL WHERE attempt_id=?",response.attempt_id);
+    this.run("UPDATE crawl_tasks SET state='downloaded',current_url=?,hops=0 WHERE id=?",response.response_url,response.owner_id);
+    this.run("UPDATE candidates SET state='pending' WHERE url=?",response.owner_url);
+    if(response.owner_id!==task.id)defer();
+    this.reuse.archivedReparses++;return true;
   }
   fail(task: Row, error: string, denied=false) {
     const now=this.clock();
@@ -308,7 +362,8 @@ export class Scheduler {
     this.transaction(()=> {
       if(this.one('SELECT processing FROM attempt_assignments WHERE attempt_id=?',a.attempt_id)?.processing!=='pending') return;
       if(value.error) this.fail(task,value.error);
-      else this.apply(task,value,body,exports,parsed);
+      else this.apply(task,value,body,exports,parsed,a.request_id,
+        this.one('SELECT value FROM meta WHERE key=?','alias-reparse:'+a.request_id)?.value===PARSER_VERSION);
       this.run("UPDATE attempt_assignments SET processing='done',process_error=NULL WHERE attempt_id=?",a.attempt_id);
     });
     for(const item of exports) {
@@ -378,7 +433,7 @@ export class Scheduler {
         if(parsed?.kind==='discovery') {
           const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
           const started=this.one('SELECT started FROM sites WHERE domain=?',task.domain)!.started;
-          const mappingKey=createHash('sha256').update(JSON.stringify([PARSER_VERSION,value.body_hash,task.current_url,
+          const mappingKey=createHash('sha256').update(JSON.stringify([MAPPING_VERSION,value.body_hash,task.current_url,
             source.kind,source.polls>0,source.depth,started,Math.floor(this.clock()/86400_000)])).digest('hex');
           const completed=this.one('SELECT value FROM meta WHERE key=?','mapping:'+task.url)?.value;
           if(!parsed.found.partial && completed===mappingKey)this.reuse.mappingSkips++;
@@ -419,12 +474,14 @@ export class Scheduler {
     // shutdown deadline. An interrupted archive remains pending for restart.
     await Promise.all([this.parser.close(),current]);
   }
-  apply(task: Row, value: Completion, body: string, exports: {payload:string;fresh:boolean}[], parsed?: ParseResult) {
+  apply(task: Row, value: Completion, body: string, exports: {payload:string;fresh:boolean}[], parsed?: ParseResult, requestId?:number, replayed=false) {
     const now=this.clock(), status=value.status!;
     if(status>=300 && status<400 && status!==304 && value.headers.location) {
       if(task.hops>=5) {this.fail(task,'Too many redirects');return;}
       let next:string; try {next=new URL(value.headers.location,task.current_url).href;} catch {this.fail(task,'Invalid redirect');return;}
       if(!domainFor(next)) {this.fail(task,'URL is outside configured domains',true);return;}
+      if(task.purpose==='article' && requestId && [301,308].includes(status))
+        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,next,'redirect',requestId,Date.parse(value.finished_at));
       this.run("UPDATE crawl_tasks SET state='ready',current_url=?,hops=hops+1,next_crawl_at=? WHERE id=?",next,now,task.id);
       return;
     }
@@ -491,7 +548,20 @@ export class Scheduler {
       const payload=JSON.stringify({...article,classification,fetchedAt:new Date(now).toISOString(),sourceUrl:item.url,domain:site.domain});
       const saved=this.run('INSERT OR IGNORE INTO articles(canonical_url,domain,discovered,fetched,published,classification,fingerprint,payload) VALUES (?,?,?,?,?,?,?,?)',article.canonicalUrl,site.domain,item.discovered,now,article.publishedAt,classification,fingerprint,payload);
       if(saved.changes) exports.push({payload,fresh:classification==='new'});
-      this.run("UPDATE candidates SET state='done',attempts=attempts+1,last_error=NULL WHERE url=?",task.url);
+      else if(classification!=='incomplete') {
+        const existing=this.one("SELECT * FROM articles WHERE canonical_url=? AND classification='incomplete'",article.canonicalUrl);
+        if(existing) {
+          const original=JSON.parse(existing.payload);
+          const repairedClass=classify(article.publishedAt,started,existing.discovered,duplicate,true);
+          const repaired=JSON.stringify({...article,classification:repairedClass,domain:site.domain,
+            sourceUrl:original.sourceUrl,discoveredAt:original.discoveredAt,fetchedAt:original.fetchedAt,reprocessedAt:new Date(now).toISOString()});
+          this.run('UPDATE articles SET published=?,classification=?,fingerprint=?,payload=? WHERE canonical_url=?',article.publishedAt,repairedClass,fingerprint,repaired,article.canonicalUrl);
+          exports.push({payload:repaired,fresh:false});
+        }
+      }
+      if(requestId && classification!=='incomplete')
+        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,article.canonicalUrl,'canonical',requestId,Date.parse(value.finished_at));
+      this.run("UPDATE candidates SET state='done',attempts=attempts+?,last_error=NULL WHERE url=?",replayed?0:1,task.url);
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=articles_since_poll+1 WHERE domain=?',site.domain);
     }

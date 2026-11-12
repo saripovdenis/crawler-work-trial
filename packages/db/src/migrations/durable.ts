@@ -22,6 +22,12 @@ export function migrateDurable(db: DatabaseSync) {
       CREATE UNIQUE INDEX IF NOT EXISTS active_domain_assignment ON attempt_assignments(domain) WHERE terminal IS NULL;
       CREATE INDEX IF NOT EXISTS attempts_processing ON attempt_assignments(processing,process_after);
       CREATE TABLE IF NOT EXISTS scheduler_domains(domain TEXT PRIMARY KEY, articles_since_poll INTEGER NOT NULL DEFAULT 2);
+      CREATE TABLE IF NOT EXISTS article_aliases (
+        alias_url TEXT PRIMARY KEY, target_url TEXT NOT NULL, domain TEXT NOT NULL,
+        kind TEXT NOT NULL, request_id INTEGER NOT NULL, observed INTEGER NOT NULL, expires INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS article_alias_target ON article_aliases(target_url);
+      CREATE INDEX IF NOT EXISTS requests_url ON requests(url,id);
     `);
     syncTasks(db);
     db.exec('COMMIT');
