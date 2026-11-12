@@ -27,8 +27,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
               <div>
                 <h2>Article timing</h2>
                 <p>
-                  Compare provider publication and observation with our
-                  completed fetch. All times UTC.
+                  Article publication → our download finish. Provider poll times are separate context. All times UTC.
                 </p>
               </div>
               <label className="timing-filter">
@@ -47,8 +46,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
               </label>
             </div>
             <p className="timing-note">
-              First observed is when our poll saw the result, not when the
-              provider indexed it. Publication dates are provider-reported.
+              “Our poll first saw it” is our observation of provider results, not their indexing time. Article publication dates are reported by each provider.
               Negative differences mean our fetch finished earlier than that
               timestamp.
             </p>
@@ -61,7 +59,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
                         <strong>{g.title || g.url}</strong>
                         <small>
                           {g.site} · Fetched:{" "}
-                          {time(g.crawler_fetch_finished_at)} · First observed:{" "}
+                          {time(g.crawler_fetch_finished_at)} · Our poll first saw it:{" "}
                           {time(g.observed_at)}
                         </small>
                       </div>
@@ -120,7 +118,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
                         </div>
                         {g.crawler_reprocessed_at && <div><dt>Archive repaired</dt><dd>{time(g.crawler_reprocessed_at)}</dd></div>}
                         <div>
-                          <dt>Publication in our article</dt>
+                          <dt>Publication date parsed from article</dt>
                           <dd>{time(g.crawler_published_at)}</dd>
                         </div>
                       </dl>
@@ -129,10 +127,10 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
                           <thead>
                             <tr>
                               <th>Provider</th>
-                              <th>Published</th>
-                              <th>First observed by us</th>
-                              <th>Fetch − publication</th>
-                              <th>Fetch − observation</th>
+                              <th>Article published (reported)</th>
+                              <th>Our poll first saw it</th>
+                              <th>Download − publication</th>
+                              <th>Download − our poll</th>
                             </tr>
                           </thead>
                           <tbody>
