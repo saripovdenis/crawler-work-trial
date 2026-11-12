@@ -22,6 +22,24 @@ SQLite. Python remains a one-request Chrome 136 subprocess. The dashboard/Caddy 
 - Partial unique index permits only one unterminated assignment per configured target domain.
 - `scheduler_domains` persists the existing two-articles-between-polls counter.
 
+### Robots cache
+
+The scheduler caches robots policy for the fetcher; the worker remains stateless.
+SQLite stores each policy under its full origin (scheme, host and port), not the
+configured parent domain. Different Sina subdomains therefore keep separate rules,
+as required by the [robots protocol](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
+Successful policies and 404/410 results retain the existing six-hour lifetime;
+401/403 deny policies retain one hour. Failures keep the existing origin cooldown.
+
+A bounded memory cache reuses parsed rules. ETag/Last-Modified validators persist
+in `meta`, tied to the exact response URL, and conditional refreshes still spend a
+normal request slot. A 304 renews the existing policy, including disallow rules;
+a 304 without a matching cached policy fails closed. No schema change is required.
+
+Origins awaiting robots processing are excluded from article/source selection,
+so other origins with valid policies can continue. Robots completions already use
+the independent control queue; cached policies never bypass budget or crawl delay.
+
 Migration is transactional and repeatable. Existing tables and indexes are unchanged.
 New sources/candidates create tasks in the same mapping transaction. Backfill runs at
 startup, not on each claim. Selection favors recent publication hints, reserves every fifth article assignment for the oldest eligible candidate, and promotes repeated homepage links. It retains eight undated baseline samples, three article attempts, robots and backoff.

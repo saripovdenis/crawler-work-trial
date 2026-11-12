@@ -2,7 +2,6 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import { sites } from '../../../../config/sites.js';
 import { chromeSites } from '../../../../config/profiles.js';
@@ -13,19 +12,20 @@ import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, type Ass
 import { reserveSlot, slotDue } from './budget.js';
 import { ArchiveParser, type ParseResult } from './parse-worker.js';
 import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
-const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
+import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
 const UA = 'ExaTrialCrawler/0.1';
 type Row = Record<string, any>;
 export class ContractError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
 export class Scheduler {
   private parser: ArchiveParser;
+  private robotsCache: RobotsCache;
   private processingJob?: Promise<void>;
   private articlesSinceDiscovery = 3;
   private articleParses = 0;
   private closing=false;
   private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number }>();
-  constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) { migrateDurable(db); this.parser=new ArchiveParser(directory); this.refreshSourceQuality(); }
+  constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) { migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db); this.refreshSourceQuality(); }
   // Once per minute, outside claim transactions. Count successfully parsed NEW
   // articles, not raw links. A canonical redirect can conservatively undercount.
   refreshSourceQuality() {
@@ -104,7 +104,7 @@ export class Scheduler {
         const candidate = this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
           WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
           AND ${candidatePriority}
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,now,...orderParams);
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,now,...orderParams);
         if(candidate && isKnownListingUrl(candidate.url)) {
           // Retire pre-existing navigation candidates without spending a request.
           this.run("UPDATE candidates SET state='failed',last_error='Known listing route, not an article' WHERE url=?",candidate.url);
@@ -113,7 +113,7 @@ export class Scheduler {
         }
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND r.state='processed' AND r.next_crawl_at>? AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
           .sort((a,b)=>this.sourceScore(b)-this.sourceScore(a)||a.next_poll-b.next_poll)[0];
         const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
         let task = source && (turns>=2 || !candidate) ? source : candidate;
@@ -130,8 +130,8 @@ export class Scheduler {
         let delay = 0;
         if (task.purpose !== 'robots') {
           const origin = new URL(task.current_url).origin;
-          const cached = this.one('SELECT * FROM robots WHERE origin=?',origin);
-          if (!cached || cached.expires < now) {
+          const cached = this.robotsCache.get(origin,now);
+          if (!cached) {
             const url = origin+'/robots.txt';
             this.run(`INSERT INTO crawl_tasks(domain,url,purpose,next_crawl_at,current_url,parent_id,origin)
               VALUES (?,?,'robots',?,?,?,?) ON CONFLICT(url,purpose) DO UPDATE SET state='ready',next_crawl_at=excluded.next_crawl_at,
@@ -140,7 +140,7 @@ export class Scheduler {
             task = this.one("SELECT * FROM crawl_tasks WHERE url=? AND purpose='robots'",url)!;
             if (task.state!=='ready' || task.next_crawl_at>now) continue;
           } else {
-            const rules=robotsParser(origin+'/robots.txt',cached.body);
+            const rules=cached.rules;
             if (rules.isAllowed(task.current_url,UA)===false) { this.fail(task,`robots.txt disallows ${task.current_url}`,true); continue; }
             delay=rules.getCrawlDelay(UA)||0;
           }
@@ -150,6 +150,7 @@ export class Scheduler {
         const slot=reserveSlot(this.db,domain,task.current_url,task.purpose,rpm,delay,now);
         if (!slot.id) continue;
         const headers: Record<string,string> = task.hops ? {} : JSON.parse(task.headers);
+        if(task.purpose==='robots') Object.assign(headers,this.robotsCache.headers(task.origin,task.current_url));
         if (task.purpose==='discovery' && !task.hops) {
           const s=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
           if(s.etag) headers['If-None-Match']=s.etag;
@@ -413,15 +414,21 @@ export class Scheduler {
       return;
     }
     if(task.purpose==='robots') {
-      let ttl=6*3600_000;
-      if([401,403].includes(status)) {body='User-agent: *\nDisallow: /';ttl=3600_000;}
-      else if([404,410].includes(status)) body='';
-      else if(status>=400) {this.fail(task,`robots.txt HTTP ${status}`);return;}
-      else if(/<html[\s>]/i.test(body)) {this.fail(task,'robots.txt returned HTML');return;}
-      this.run('INSERT OR REPLACE INTO robots(origin,body,expires) VALUES (?,?,?)',task.origin,body,now+ttl);
+      let policy;
+      if(status===304) {
+        policy=this.robotsCache.renew(task.origin,task.current_url,now,value.headers);
+        if(!policy) {this.fail(task,'robots.txt returned 304 without a cached policy');return;}
+      } else {
+        let ttl=ROBOTS_TTL_MS,conditional=true;
+        if([401,403].includes(status)) {body='User-agent: *\nDisallow: /';ttl=ROBOTS_DENIED_TTL_MS;conditional=false;}
+        else if([404,410].includes(status)) {body='';conditional=false;}
+        else if(status>=400) {this.fail(task,`robots.txt HTTP ${status}`);return;}
+        else if(/<html[\s>]/i.test(body)) {this.fail(task,'robots.txt returned HTML');return;}
+        policy=this.robotsCache.save(task.origin,task.current_url,body,now,ttl,value.headers,conditional);
+      }
       const auditParent=task.parent_id && this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose==='audit';
       // Robots fetched only for an external audit must not seed crawler discovery.
-      for(const map of auditParent?[]:robotsParser(task.origin+'/robots.txt',body).getSitemaps()
+      for(const map of auditParent?[]:policy.rules.getSitemaps()
         .filter(url=>domainFor(url)===task.domain && sourcePriority(url,'sitemap')>=0)
         .sort((a,b)=>sourcePriority(b,'sitemap')-sourcePriority(a,'sitemap')).slice(0,6)) {
         if(domainFor(map)===task.domain) { this.run('INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,?)',map,task.domain,'sitemap'); this.ensureTask(map,'discovery'); }
