@@ -183,6 +183,7 @@ export default function FreshnessPage() {
                   setPage(1);
                 }}
               >
+                <option value="10m">Last 10 minutes</option>
                 <option value="1h">Last hour</option>
                 <option value="24h">Last 24 hours</option>
                 <option value="7d">Last 7 days</option>
