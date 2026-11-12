@@ -264,7 +264,7 @@ export default function App() {
             </button>
           ))}
           <a className="nav-item" href="/charts"><BarChart3 size={17}/>Charts</a>
-        <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a></nav>
+        <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a><a className="nav-item" href="/freshness"><Clock3 size={17}/>Freshness</a></nav>
         <div className="sidebar-note">
           <Radio size={17} />
           <strong>A window into the crawl.</strong>

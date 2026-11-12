@@ -16,7 +16,7 @@ export default function ChartsPage() {
         <a className="nav-item" href="/?view=articles"><FileText size={17}/>Articles</a>
         <a className="nav-item" href="/?view=schedule"><Clock3 size={17}/>Poll schedule</a>
         <a className="nav-item active" href="/charts" aria-current="page"><BarChart3 size={17}/>Charts</a>
-      <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a></nav>
+      <a className="nav-item" href="/reconciliation"><ScanSearch size={17}/>Coverage</a><a className="nav-item" href="/freshness"><Clock3 size={17}/>Freshness</a></nav>
       <div className="sidebar-note"><BarChart3 size={18}/><strong>Measure what arrives.</strong><p>Parsing quality, across every source.</p></div>
     </aside>
     <main>

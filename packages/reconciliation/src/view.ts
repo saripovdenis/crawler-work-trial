@@ -6,6 +6,7 @@ import { urlKey, matchingTitle, date } from "./identity.js";
 import { attachFetchTiming } from "./timing.js";
 import { dispatchSummary } from "./dispatch.js";
 import { externalContentKind } from "./content-kind.js";
+import { summarizeFreshness } from "./freshness.js";
 type Row = Record<string, any>;
 export type ProviderTiming = {
   sighting_id: number;
@@ -165,7 +166,7 @@ export class CoverageReader {
     readonly monitorPath: string,
     readonly crawlerPath: string,
   ) {}
-  get(params: URLSearchParams, now = Date.now()) {
+  get(params: URLSearchParams, now = Date.now(), includeFreshness = false) {
     const window = params.get("window") || "1h",
       site = params.get("site") || "",
       provider = params.get("provider") || "",
@@ -181,7 +182,7 @@ export class CoverageReader {
       page > 1000
     )
       throw new Error("Invalid reconciliation filter");
-    const key = JSON.stringify([window, site, provider, matches, page]);
+    const key = JSON.stringify([window, site, provider, matches, page, includeFreshness]);
     const cached = this.cached.get(key);
     if (cached && now - cached.at < 15000) return cached.value;
     const value = this.query(
@@ -191,6 +192,7 @@ export class CoverageReader {
       now,
       matches,
       page,
+      includeFreshness,
     );
     if (this.cached.size > 100) this.cached.clear();
     this.cached.set(key, { at: now, value });
@@ -203,6 +205,7 @@ export class CoverageReader {
     now: number,
     matches = "all",
     page = 1,
+    includeFreshness = false,
   ) {
     const start = now - windows[window];
     const base = {
@@ -355,12 +358,13 @@ export class CoverageReader {
           (a, b) => b.observed_at - a.observed_at || a.key.localeCompare(b.key),
         );
       const displayed = filtered.slice((page - 1) * 50, page * 50);
-      attachFetchTiming(crawler, displayed);
+      attachFetchTiming(crawler, includeFreshness ? groups : displayed);
       return {
         ...base,
         ready: true,
         summary: count(groups),
         dispatch: dispatchSummary(crawler,now,site),
+        freshness: includeFreshness ? summarizeFreshness(groups, matrix.map(r => r.site), provider ? [provider] : providerIds) : undefined,
         unfilteredSummary: count(allGroups),
         unknownPublication,
         excludedNonArticles: excludedGroups.length,

@@ -1,0 +1,13 @@
+.freshness-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.freshness-stats strong { font-size: clamp(28px, 3vw, 42px); }
+.freshness-chart { height: 270px; padding: 12px 12px 0; }
+.freshness-sample { display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 16px 20px; border: 1px solid #e1e5ef; border-radius: 8px; background: #fafbfe; font-size: 11px; color: #737d92; }
+.freshness-sample b { color: #293c6b; font-variant-numeric: tabular-nums; }
+.freshness-page .reconcile-definition a { color: #1840ed; text-decoration: underline; }
+@media (max-width: 700px) {
+  .freshness-stats { grid-template-columns: 1fr; }
+  .freshness-stats section { padding: 18px; }
+  .freshness-page .reconcile-heading { flex-wrap: wrap; gap: 0; }
+  .freshness-page .reconcile-filters select { min-width: 0; }
+  .freshness-page .reconcile-filters label { flex-basis: 45%; min-width: 0; }
+}

@@ -10,7 +10,8 @@ import { MonitorStore } from "../../../../packages/reconciliation/src/store.js";
 import { providerConfig } from "../../../../config/monitor.js";
 import { sighting } from "../../../../packages/reconciliation/src/identity.js";
 
-test("reconciliation HTTP endpoint supports all windows, validates filters and never polls providers", async () => {
+for (const endpoint of ["reconciliation", "freshness"])
+test(`${endpoint} HTTP endpoint supports all windows, validates filters and never polls providers`, async () => {
   const dir = mkdtempSync(join(tmpdir(), "coverage-api-")),
     db = new DatabaseSync(join(dir, "crawler.sqlite"));
   db.exec(
@@ -80,13 +81,18 @@ test("reconciliation HTTP endpoint supports all windows, validates filters and n
       });
     });
     const get = (params: string) =>
-      fetch(`http://127.0.0.1:${port}/api/reconciliation?${params}`);
+      fetch(`http://127.0.0.1:${port}/api/${endpoint}?${params}`);
     for (const window of ["1h", "24h", "7d"]) {
       const r = await get("window=" + window);
       assert.equal(r.status, 200);
       const body = await r.json();
       assert.equal(body.summary.percentage, 100);
       assert.equal(body.cadenceMinutes, 10);
+      if (endpoint === "freshness") {
+        assert.equal(body.freshness.overall.missingTiming, 1);
+        assert.equal(body.freshness.overall.observed.p50, null);
+        assert.equal(body.freshness.domains.length, 20);
+      }
       assert.equal(body.groups[0].crawler_parsed_at, now - 500);
       assert.equal(body.groups[0].crawler_fetch_finished_at, null);
       assert.equal(body.groups[0].provider_timings[0].published_at, now - 1000);
@@ -123,7 +129,7 @@ test("reconciliation HTTP endpoint supports all windows, validates filters and n
     );
     assert.equal(
       (
-        await fetch(`http://127.0.0.1:${port}/api/reconciliation`, {
+        await fetch(`http://127.0.0.1:${port}/api/${endpoint}`, {
           method: "POST",
         })
       ).status,

@@ -260,3 +260,13 @@ node --import tsx tools/simulator/check-layout.mjs /path/to/snapshot.sqlite
 
 The smoke replaces Node fetch with saved fixtures, blocks Node sockets, and uses an
 offline Python-shaped child. The real Python contract test contacts loopback only.
+
+### Freshness dashboard
+
+Open `/freshness` for p50/p75/p90 fetch delay against Google News and Exa,
+by provider and domain. Switch between publication and first observation;
+all filter choices stay in the URL. Per-article timing now lives here.
+See [freshness definitions](docs/METRICS.md#freshness-comparison).
+Use the normal `npm run dashboard:build` and `npm run dashboard:api` commands.
+For an isolated preview, point `CRAWLER_DATA_DIR` and `RECONCILER_DB` at copies
+of the databases and set a spare `PORT`, such as `4338`.
