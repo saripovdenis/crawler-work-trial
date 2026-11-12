@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { load } from 'cheerio';
-import { publisherPublication, parseArticle } from '../../../../packages/core/src/parse.js';
+import { publisherPublication, parseArticle, publisherStoryFromHtml } from '../../../../packages/core/src/parse.js';
 import { classify, domainFor } from '../../../../packages/core/src/policy.js';
 
 type Row = Record<string, any>;
@@ -50,15 +50,22 @@ export function repairPublication(options: RepairOptions) {
       const last=articles[limit-1]!;
       result.nextCursor=Buffer.from(JSON.stringify({fetched:last.fetched,canonicalUrl:last.canonical_url})).toString('base64url');
     }
-    const receipt = db.prepare(durable ? `SELECT r.* FROM requests r
-      LEFT JOIN attempt_assignments a ON a.request_id=r.id LEFT JOIN crawl_tasks t ON t.id=a.task_id
-      WHERE r.domain=? AND r.purpose='article' AND r.status=200 AND r.error IS NULL
-      AND r.body_hash IS NOT NULL AND r.finished<=? AND r.started<=?
-      AND ((a.processing='done' AND t.purpose='article' AND t.url=?) OR (a.attempt_id IS NULL AND r.url=?))
-      ORDER BY r.finished DESC,r.id DESC LIMIT 1` : `SELECT r.* FROM requests r
-      WHERE r.domain=? AND r.purpose='article' AND r.status=200 AND r.error IS NULL
-      AND r.body_hash IS NOT NULL AND r.finished<=? AND r.started<=? AND r.url=? AND r.url=?
-      ORDER BY r.finished DESC,r.id DESC LIMIT 1`);
+    // Load eligible receipts once, rather than rescanning a domain's complete
+    // request history for every article in the batch.
+    const receiptRows=db.prepare(durable ? `SELECT r.*,CASE WHEN a.attempt_id IS NULL THEN r.url ELSE t.url END source_url
+      FROM requests r LEFT JOIN attempt_assignments a ON a.request_id=r.id LEFT JOIN crawl_tasks t ON t.id=a.task_id
+      WHERE r.domain IN ('ce.cn','eastmoney.com','chosun.com') AND r.purpose='article' AND r.status=200
+      AND r.error IS NULL AND r.body_hash IS NOT NULL AND r.finished<=? AND r.started<=?
+      AND (a.attempt_id IS NULL OR (a.processing='done' AND t.purpose='article'))
+      ORDER BY r.finished DESC,r.id DESC` : `SELECT r.*,r.url source_url FROM requests r
+      WHERE r.domain IN ('ce.cn','eastmoney.com','chosun.com') AND r.purpose='article' AND r.status=200
+      AND r.error IS NULL AND r.body_hash IS NOT NULL AND r.finished<=? AND r.started<=?
+      ORDER BY r.finished DESC,r.id DESC`).all(now,now) as Row[];
+    const receipts=new Map<string,Row[]>();
+    for(const receipt of receiptRows) {
+      const key=receipt.domain+'|'+receipt.source_url;
+      const list=receipts.get(key)||[];list.push(receipt);receipts.set(key,list);
+    }
     for (const row of articles.slice(0,limit)) {
       let payload: Row;
       try { payload=JSON.parse(row.payload); } catch { skip('invalid_payload'); continue; }
@@ -66,7 +73,7 @@ export function repairPublication(options: RepairOptions) {
       if (row.domain!=='chosun.com' && payload.publishedAt != null) { skip('existing_payload_date'); continue; }
       const source = payload.sourceUrl;
       if (typeof source!=='string' || domainFor(source)!==row.domain) { skip('unverified_source'); continue; }
-      const request = receipt.get(row.domain,row.fetched,row.fetched,source,source) as Row | undefined;
+      const request = receipts.get(row.domain+'|'+source)?.find(r=>r.finished<=row.fetched && r.started<=row.fetched);
       if (!request || !/^[a-f0-9]{64}$/.test(request.body_hash)) { skip('no_successful_article_receipt'); continue; }
       if (domainFor(request.url)!==row.domain) { skip('unverified_response_domain'); continue; }
       let body: string;
@@ -81,7 +88,9 @@ export function repairPublication(options: RepairOptions) {
       let published: string | null=row.published;
       let next={...payload}, fingerprint: string=row.fingerprint;
       if(row.domain==='chosun.com') {
-        const parsed=parseArticle(body,request.url,row.discovered,payload.publishedAt || null);
+        const story=publisherStoryFromHtml(body,request.url);
+        const parsed=story ? {...story,isArticle:true,textSource:'fusion.globalContent.content_elements',dateSource:'fusion.globalContent.first_publish_date',title:payload.title,description:payload.description}
+          : parseArticle(body,request.url,row.discovered,payload.publishedAt || null);
         if(!parsed.isArticle || parsed.text.length<200 || parsed.text.length<=(payload.text?.length||0)) { skip('no_improved_article_text'); continue; }
         // Correct text only from the archived response; keep original identity,
         // publication evidence and timing. The request ledger is never changed.

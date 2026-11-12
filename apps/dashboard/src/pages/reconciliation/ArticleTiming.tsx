@@ -116,7 +116,7 @@ export default function ArticleTiming({ data, matches, setMatches, page, setPage
                           <dt>Our parse finished</dt>
                           <dd>{time(g.crawler_parsed_at)}</dd>
                         </div>
-                        {g.crawler_reprocessed_at && <div><dt>Archive repaired</dt><dd>{time(g.crawler_reprocessed_at)}</dd></div>}
+                        {g.crawler_reprocessed_at && <div><dt>Repair run started</dt><dd>{time(g.crawler_reprocessed_at)}</dd></div>}
                         <div>
                           <dt>Publication date parsed from article</dt>
                           <dd>{time(g.crawler_published_at)}</dd>

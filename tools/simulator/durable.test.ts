@@ -375,3 +375,38 @@ test('interrupted chunked discovery replays without double counting or premature
     assert.equal(f.db.prepare('SELECT max(discovered) n FROM candidates').get()!.n,finished);
   }finally{await restarted?.close();await f.scheduler.close();f.close();}
 });
+
+test('initial sample remains capped at eight after additional completed history accumulates',()=>{
+  const f=fixture();try {
+    f.db.exec("UPDATE sources SET next_poll=999999999;UPDATE crawl_tasks SET next_crawl_at=999999999");
+    const insert=f.db.prepare("INSERT INTO candidates(url,domain,source,discovered,priority,state) VALUES (?,'bbc.com','x',?,0,?)");
+    for(let i=0;i<7;i++) insert.run('https://www.bbc.com/history-'+i,i,'done');
+    insert.run('https://www.bbc.com/unknown-first',900000,'pending');
+    insert.run('https://www.bbc.com/unknown-second',800000,'pending');
+    migrateDurable(f.db);
+    const task=f.scheduler.claim('w','seventh-completed').task!;
+    assert.equal(task.url,'https://www.bbc.com/unknown-first');
+    f.scheduler.complete(task.attempt_id,response(f,task,404));f.scheduler.process();f.advance();
+    assert.equal(f.scheduler.claim('w','sample-full').task,null);
+    for(let i=7;i<10;i++) insert.run('https://www.bbc.com/history-'+i,i,'failed');
+    assert.equal(f.db.prepare("SELECT count(*) n FROM candidates WHERE priority=0 AND state<>'pending'").get()!.n,11);
+    assert.equal(new Scheduler(f.db,f.dir,f.now).claim('w','larger-history').task,null);
+    assert.equal(f.db.prepare("SELECT state FROM candidates WHERE url='https://www.bbc.com/unknown-second'").get()!.state,'pending');
+  }finally{f.close();}
+});
+
+test('five-second dispatch allowance retains completion-based budget spacing and rejects later sends',()=>{
+ const f=fixture();try {
+  const reserved=f.now(),task=f.scheduler.claim('w','five-seconds').task!;
+  assert.equal(Date.parse(task.start_by)-reserved,5000);
+  f.advance(4999);f.scheduler.complete(task.attempt_id,response(f,task,304,''));f.scheduler.process();
+  f.db.exec('UPDATE crawl_tasks SET next_crawl_at=0;UPDATE sources SET next_poll=0');
+  f.advance(12019);assert.equal(f.scheduler.claim('w','too-early').task,null);
+  f.advance(1);assert.ok(f.scheduler.claim('w','spaced').task);
+ }finally{f.close();}
+ const late=fixture();try {
+  const task=late.scheduler.claim('w','late').task!;late.advance(5001);
+  assert.throws(()=>late.scheduler.complete(task.attempt_id,response(late,task,304,'')),/Dispatch after deadline/);
+  assert.equal(late.db.prepare('SELECT count(*) n FROM requests').get()!.n,1);
+ }finally{late.close();}
+});

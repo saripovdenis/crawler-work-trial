@@ -65,7 +65,7 @@ Claims reserve the existing ledger, create the assignment and lease the task in 
 cooldown calculations are reused. Worker timestamps are measurements; `requests.finished`
 is scheduler-observed. Expired attempts receive the observed expiry time and remain charged.
 
-Dispatch must begin within two seconds; Node/Python enforce the deadline immediately
+Dispatch must begin within five seconds; Node/Python enforce the deadline immediately
 before network dispatch. Requests time out after 20 seconds (Python subprocess also has
 its existing 25-second cap); leases last 60 seconds. There is no lease renewal. Safe expiry
 plus conservative completion spacing precedes another assignment for that domain.
@@ -137,8 +137,7 @@ copy; a blind return to stale durable tasks is not supported.
 Archive decompression, XML parsing and article extraction run in one built-in
 worker thread within the scheduler process. The worker has no network or SQLite
 access. Mapping yields between small transactions, so a large sitemap cannot
-hold up claims for the entire document. The request budget and two-second dispatch
-deadline are unchanged. `/api/reconciliation` exposes last-hour assignment-to-reported
+hold up claims for the entire document. Request limits and transport timeouts are unchanged. `/api/reconciliation` exposes last-hour assignment-to-reported
 worker-start p50/p95/max, unsent completions, lease expiries and deadline failures
 by transport. Worker start is a receipt timestamp, not proof of TCP send time.
 
@@ -154,3 +153,8 @@ counter is stored in SQLite metadata and survives restart. Other article slots
 favor recent publication hints; URL dates influence priority only. They never become
 publication metadata. Poll timing and discovery timestamps use the archived
 response's finish time; article `fetched` continues to mean parse completion.
+
+The dispatch allowance is five seconds after measured curl_cffi imports took
+1–1.24 seconds before transport setup. Uncertain reservations use a 35-second
+horizon (5-second dispatch + 25-second subprocess cap + 5-second margin).
+Completion-based spacing and one active assignment per domain still apply.
