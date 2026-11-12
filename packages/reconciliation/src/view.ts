@@ -156,7 +156,7 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
   }
   return [...groups.values()];
 }
-const windows = { "1h": 3600000, "24h": 86400000, "7d": 604800000 };
+const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 604800000 };
 export class CoverageReader {
   private cached = new Map<
     string,
