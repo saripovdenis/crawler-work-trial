@@ -4,6 +4,7 @@ import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
 import { urlKey, matchingTitle, date } from "./identity.js";
 import { attachFetchTiming } from "./timing.js";
+import { dispatchSummary } from "./dispatch.js";
 import { externalContentKind } from "./content-kind.js";
 type Row = Record<string, any>;
 export type ProviderTiming = {
@@ -64,7 +65,7 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
   for (const original of [...rows].sort(
     (a, b) => Number(!!b.url_key) - Number(!!a.url_key),
   )) {
-    const row: Row = { ...original, title_key: matchingTitle(original.title || "", original.site) };
+    const row: Row = { ...original, url_key: urlKey(original.url_raw), title_key: matchingTitle(original.title || "", original.site) };
     let article = row.url_key ? urls.get(row.url_key) : undefined;
     let kind: Group["match"] = article ? "url" : null;
     let ambiguous = false;
@@ -269,7 +270,7 @@ export class CoverageReader {
         const audits = crawler
           .prepare(
             `SELECT t.url,t.state,r.status,r.error FROM crawl_tasks t
-          LEFT JOIN attempt_assignments a ON a.request_id=(SELECT max(request_id) FROM attempt_assignments WHERE task_id=t.id)
+          LEFT JOIN (SELECT task_id,max(request_id) request_id FROM attempt_assignments GROUP BY task_id) a ON a.task_id=t.id
           LEFT JOIN requests r ON r.id=a.request_id WHERE t.purpose='audit'`,
           )
           .all() as Row[];
@@ -286,6 +287,7 @@ export class CoverageReader {
       }
       const count = (list: Group[]) => {
         const matched = list.filter((g) => g.match).length;
+        const completeMatched = list.filter(g => g.match && !g.incomplete).length;
         return {
           total: list.length,
           googleOnly: list.filter(g => g.providers.length === 1 && g.providers[0] === 'google').length,
@@ -293,6 +295,8 @@ export class CoverageReader {
           shared: list.filter(g => g.providers.includes('google') && g.providers.includes('exa')).length,
           matched,
           percentage: list.length ? (matched / list.length) * 100 : null,
+          completeMatched,
+          completePercentage: list.length ? (completeMatched / list.length) * 100 : null,
           urlMatched: list.filter((g) => g.match === "url").length,
           titleMatched: list.filter((g) => g.match === "title").length,
           unmatched: list.filter(
@@ -356,6 +360,7 @@ export class CoverageReader {
         ...base,
         ready: true,
         summary: count(groups),
+        dispatch: dispatchSummary(crawler,now,site),
         unfilteredSummary: count(allGroups),
         unknownPublication,
         excludedNonArticles: excludedGroups.length,

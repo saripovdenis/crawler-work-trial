@@ -194,3 +194,24 @@ Only successful, processed article archives with verified hashes qualify. The
 command preserves original fetch/discovery times and content, uses the same
 publication profile and classification function as the parser, and skips
 concurrent changes. Its before/after audit allows conditional rollback.
+
+## Complete coverage and dispatch health
+
+The page shows fetched matches and **matched & complete** separately, both overall
+and by domain. `completeMatched` / `completePercentage` exclude the same
+`classification='incomplete'` rows as Charts. URL and probable title matches remain
+separate. Historical UDN referral keys are normalized when read as well as on
+new sightings.
+
+`dispatch` contains last-hour assignment-to-reported-worker-start p50/p95/max,
+internal deadline failures, completed attempts without a reported start, lease
+expiries and counts by transport. This distinguishes internal dispatch failures
+from publisher HTTP responses. It does not claim that worker start equals TCP send.
+
+Archive repair also supports incomplete Chosun articles. It extracts JSON story
+text without executing scripts, preserves original fetch/discovery timestamps and
+known publication dates, and updates fingerprints/classification. Use `--hours 168`
+for the whole trial, process bounded batches, then pass `--cursor` from the returned
+`nextCursor` with a fresh audit filename until `truncated` is false. Empty verified
+story bodies stay incomplete. SQLite/API are authoritative; old append-only JSONL
+exports remain historical observations.

@@ -5,7 +5,7 @@ TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler ne
 ## Current runtime: durable scheduler + fetch worker
 
 The crawler now has two Node processes. The dashboard and external reconciliation monitor run separately.
-The scheduler owns SQLite, budgets and parsing; the worker claims one-request leases
+The scheduler owns SQLite and budgets; an in-process worker thread parses archives. The fetch worker claims one-request leases
 on loopback HTTP, archives responses and persists retryable receipts. Python stays a
 transport subprocess. See [protocol, recovery and deployment](docs/SCHEDULER.md).
 
@@ -46,15 +46,15 @@ npm ci
 npm --prefix apps/dashboard ci
 npm run dashboard:build
 CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api # UI + API on 127.0.0.1:4318
-npm run dev                                       # scheduler + inline pipeline
+npm run dev                                       # scheduler + archive parsing thread
 npm run worker                                    # separate fetch worker
 npm run simulator                                 # optional loopback fake news site
 ```
 
-The pipeline stays inside the scheduler process. Shared parsing lives in `packages/core`
+The pipeline stays inside the scheduler process; CPU-heavy parsing runs in a built-in worker thread. Shared parsing lives in `packages/core`
 because the dashboard also inspects saved responses. No service imports another service's
 source. Python is an on-demand child, never a daemon. Health remains `/api/health`.
-The mapper stays inside the existing worker to avoid a logic refactor.
+The mapper commits parsed results in the scheduler, while the fetch worker remains database-free.
 
 [Architecture](docs/architecture.md) · [move/content audit](docs/REORGANIZATION.md) · [deployment](deploy/README.md)
 

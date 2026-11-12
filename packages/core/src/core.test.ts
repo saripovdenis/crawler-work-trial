@@ -61,3 +61,32 @@ test('publisher-local publication fields use explicit site profiles, not generat
   const ce=parseArticle('<meta name="publishdate" content="2026-11-12 16:30:09"><article>'+('Some news text. '.repeat(30))+'</article>','http://finance.ce.cn/test.shtml',Date.now(),null);
   assert.equal(ce.publishedAt,'2026-11-12T08:30:09.000Z');assert.equal(ce.isArticle,true);
 });
+
+test('Chosun parses verified embedded story text without executing JavaScript or using navigation',()=>{
+  const url='https://www.chosun.com/english/national-en/2026/11/12/STORYID/';
+  const paragraph='The court described a "quoted } phrase" and a \\literal path in its evidence. '.repeat(5);
+  const story={_id:'STORYID',type:'story',canonical_url:new URL(url).pathname,first_publish_date:'2026-11-12T08:01:00Z',display_date:'2030-01-01T00:00:00Z',content_elements:[
+    {type:'image',caption:'An image caption must not become article text'},
+    {type:'text',content:'<p>'+paragraph+'</p>'},
+    {type:'list',items:[{type:'text',content:'A list item &amp; its details.'}]},
+    {type:'quote',content_elements:[{type:'text',content:'A quoted statement.'}]},
+  ]};
+  const page='<head><meta property="og:title" content="Court evidence ruling"><script type="application/ld+json">'+JSON.stringify({'@type':'NewsArticle',datePublished:'2026-11-12T08:00:00Z'})+'</script></head><body><nav>'+('Navigation filler '.repeat(50))+'</nav><script>Fusion.globalContent='+JSON.stringify(story)+';throw new Error("Never execute publisher JavaScript");</script></body>';
+  const parsed=parseArticle(page,url,Date.now(),null);
+  assert.equal(parsed.textSource,'fusion.globalContent.content_elements');
+  assert.ok(parsed.text.includes('quoted } phrase'));assert.ok(parsed.text.includes('literal path'));
+  assert.ok(parsed.text.includes('A list item & its details.'));assert.ok(parsed.text.endsWith('A quoted statement.'));
+  assert.equal(parsed.text.includes('Navigation filler'),false);assert.equal(parsed.text.includes('image caption'),false);
+  assert.equal(parsed.publishedAt,'2026-11-12T08:01:00.000Z');assert.equal(parsed.dateSource,'fusion.globalContent.first_publish_date');assert.equal(parsed.title,'Court evidence ruling');
+  const emptyPage=page.replace(JSON.stringify(story),JSON.stringify({...story,content_elements:[]}));
+  assert.equal(parseArticle(emptyPage,url,Date.now(),null).text,'');
+  const wrongPage=page.replace(JSON.stringify(story),JSON.stringify({...story,_id:'OTHER',canonical_url:'/another-story/'}));
+  assert.notEqual(parseArticle(wrongPage,url,Date.now(),null).textSource,'fusion.globalContent.content_elements');
+  assert.notEqual(parseArticle(page,'https://bbc.com/english/STORYID/',Date.now(),null).textSource,'fusion.globalContent.content_elements');
+});
+
+test('empty JSON-LD articleBody falls back to rendered article text outside publisher profiles',()=>{
+  const text='A reported article paragraph with enough content for extraction. '.repeat(8);
+  const page='<html><head><title>Reported news</title><script type="application/ld+json">{"@type":"NewsArticle","headline":"Reported news","articleBody":"","datePublished":"2026-11-12T08:00:00Z"}</script></head><body><article><p>'+text+'</p></article></body></html>';
+  assert.equal(parseArticle(page,'https://bbc.com/news/test',Date.now(),null).text,text.trim());
+});

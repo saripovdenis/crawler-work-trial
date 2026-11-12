@@ -72,3 +72,26 @@ sample is not a validated census of all news articles.
 Follow-up validation: all 59 tests, typecheck, boundary check and frontend build pass.
 The archive repair was also applied to a local database copy: four available
 archived responses repaired, with original timestamps preserved.
+
+## Seven-point live audit follow-up
+
+1. Chosun Fusion JSON supplies missing article text; CE/Eastmoney publisher date
+   profiles supply missing date evidence. Archive repair preserves original
+   timestamps, recalculates fingerprints, and retains a reversible audit.
+2. Source scheduling measures new complete articles, slows empty alternatives,
+   admits current news maps ahead of archives, and adds Sina rolling lists.
+3. Parsing uses an in-process worker thread; mapping yields every 100 rows.
+   Dispatch latency and internal deadline failures are visible separately.
+4. Every fifth article assignment serves the oldest eligible positive-priority
+   candidate; other assignments prefer recent publication evidence.
+5. Failed robots origins back off; successful source redirect destinations persist
+   and revert to the original URL if the destination later disappears.
+6. Oversized and unsupported sources back off for six hours while useful sources
+   continue. Partial RSS recovers only closed items and clears validators.
+7. Coverage reports matched-and-complete separately, including per-domain counts;
+   URL/title evidence and provider-sample limitations remain visible.
+
+Validation: 77 tests passed, plus typecheck, boundary check, frontend build,
+production-copy process startup/restart, and desktop/mobile UI checks. Tests use
+archives/simulators, never publisher requests. Source-yield attribution can
+conservatively miss canonical aliases; quiet sites retain normal polling.

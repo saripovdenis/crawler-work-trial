@@ -192,6 +192,8 @@ test("coverage agrees with SQL, handles all filters, excludes pending/failures, 
       const view = reader.get(new URLSearchParams({ window }), now);
       assert.equal(view.summary?.total, 2);
       assert.equal(view.summary?.matched, 1);
+      assert.equal(view.summary?.completeMatched, 1);
+      assert.equal(view.summary?.completePercentage, 50);
       assert.equal(view.summary?.percentage, 50);
       assert.equal(view.summary?.unmatched, 1);
       assert.equal(

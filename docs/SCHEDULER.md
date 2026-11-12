@@ -19,8 +19,7 @@ SQLite. Python remains a one-request Chrome 136 subprocess. The dashboard/Caddy 
 
 Migration is transactional and repeatable. Existing tables and indexes are unchanged.
 New sources/candidates create tasks in the same mapping transaction. Backfill runs at
-startup, not on each claim. Selection retains first-poll priority, fresh candidate priority,
-eight undated baseline samples, source intervals, three article attempts, robots and backoff.
+startup, not on each claim. Selection favors recent publication hints, reserves every fifth article assignment for the oldest eligible candidate, and promotes repeated homepage links. It retains eight undated baseline samples, three article attempts, robots and backoff.
 
 ## HTTP contract v1
 
@@ -132,3 +131,26 @@ current database and ledger; do not restore a stale snapshot and discard budget 
 The old loop ignores additive tables. Before returning from a legacy rollback to this
 architecture, reconcile task due/state with changed legacy source/candidate rows on a
 copy; a blind return to stale durable tasks is not supported.
+
+## Live audit fixes
+
+Archive decompression, XML parsing and article extraction run in one built-in
+worker thread within the scheduler process. The worker has no network or SQLite
+access. Mapping yields between small transactions, so a large sitemap cannot
+hold up claims for the entire document. The request budget and two-second dispatch
+deadline are unchanged. `/api/reconciliation` exposes last-hour assignment-to-reported
+worker-start p50/p95/max, unsent completions, lease expiries and deadline failures
+by transport. Worker start is a receipt timestamp, not proof of TCP send time.
+
+Source scheduling measures new, complete articles per source over the last hour.
+A repeatedly unproductive source slows down when the same site has a productive
+alternative. Quiet sites keep their cadence. Old archives and repeated oversized
+or unsupported responses back off for six hours. Working news sitemaps do not
+lose admission slots to archived sources. Successful redirect destinations persist;
+404/410 at a remembered destination reverts to the original source.
+
+Every fifth article assignment uses the oldest positive-priority candidate. This
+counter is stored in SQLite metadata and survives restart. Other article slots
+favor recent publication hints; URL dates influence priority only. They never become
+publication metadata. Poll timing and discovery timestamps use the archived
+response's finish time; article `fetched` continues to mean parse completion.

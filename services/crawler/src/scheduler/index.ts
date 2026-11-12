@@ -24,7 +24,8 @@ const report=()=> {
   db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES ('heartbeat',?)").run(new Date().toISOString());
   writeFileSync(resolve(dataDir,'status.json'),JSON.stringify(summary(),null,2));
 };
-const processing=setInterval(()=> {try {scheduler.recover();}catch(e){console.error('scheduler recovery failed',e);}},1000);
+const processing=setInterval(()=> {try {scheduler.recover(false);void scheduler.processAsync().catch(e=>console.error('archive processing failed',e));}catch(e){console.error('scheduler recovery failed',e);}},1000);
+const quality=setInterval(()=> {try {scheduler.refreshSourceQuality();}catch(e){console.error('source quality refresh failed',e);}},60_000);
 const heartbeat=setInterval(report,30_000);
 const audits=setInterval(()=> {try {
   if(process.env.RECONCILER_DB)importAudits(db,resolve(process.env.RECONCILER_DB));
@@ -33,6 +34,6 @@ report();
 server.listen(Number(process.env.SCHEDULER_PORT||4319),'127.0.0.1',()=>console.log('Scheduler listening on loopback',server.address()));
 let stopping=false;
 for(const event of ['SIGINT','SIGTERM']) process.on(event,()=> {
-  if(stopping)return;stopping=true;clearInterval(processing);clearInterval(heartbeat);clearInterval(audits);
-  server.close(()=> {report();db.close();release();});
+  if(stopping)return;stopping=true;clearInterval(processing);clearInterval(quality);clearInterval(heartbeat);clearInterval(audits);
+  server.close(()=> {void scheduler.close().finally(()=>{report();db.close();release();});});
 });

@@ -7,3 +7,6 @@ export const publicationProfiles: Record<string, {selector: string; attribute?: 
   'ce.cn': {selector: 'meta[name="publishdate"]', attribute: 'content', offset: '+08:00'},
   'eastmoney.com': {selector: '#topbox .tipbox .infos > .item', offset: '+08:00'},
 };
+
+// Verified Arc story JSON is archived in these publishers' article responses.
+export const arcContentHosts = new Set(['www.chosun.com', 'biz.chosun.com']);

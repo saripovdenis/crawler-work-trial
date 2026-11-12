@@ -4,7 +4,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { dateIso, normalizeUrl, domainFor } from './policy.js';
 import { sourcePriority } from '../../../config/discovery.js';
-import { publicationProfiles } from '../../../config/profiles.js';
+import { publicationProfiles, arcContentHosts } from '../../../config/profiles.js';
 import type { Article } from './types.js';
 
 export type Found = { url: string; published: string | null };
@@ -22,6 +22,66 @@ export function publisherPublication($: CheerioAPI, url: string): {value: string
   const [,year,month,day,hour,minute,second='00'] = parts;
   const value = dateIso(`${year}-${month!.padStart(2,'0')}-${day!.padStart(2,'0')}T${hour}:${minute}:${second}${profile.offset}`);
   return value ? {value, source: `site:${domain}:${profile.selector} (${profile.offset})`} : null;
+}
+
+// Decode an embedded JSON value without executing publisher JavaScript.
+function jsonObjectAfter(script: string, start: number): any | null {
+  while (/\s/.test(script[start] || '') && start < script.length) start++;
+  if (script[start] !== '{') return null;
+  let depth=0, quoted=false, escape=false;
+  for(let i=start;i<script.length;i++) {
+    const char=script[i];
+    if(quoted) {
+      if(escape) escape=false;
+      else if(char==='\\') escape=true;
+      else if(char==='"') quoted=false;
+    } else if(char==='"') quoted=true;
+    else if(char==='{') depth++;
+    else if(char==='}' && --depth===0) {
+      try { return JSON.parse(script.slice(start,i+1)); } catch { return null; }
+    }
+  }
+  return null;
+}
+
+export function publisherStory($: CheerioAPI, url: string): {text: string; publishedAt: string | null} | null {
+  const requested=new URL(url);
+  if(!arcContentHosts.has(requested.hostname)) return null;
+  for(const element of $('script').toArray()) {
+    const script=$(element).text();
+    const marker=/(?:^|[;\s])Fusion\.globalContent\s*=/g;
+    for(const match of script.matchAll(marker)) {
+      const story=jsonObjectAfter(script,match.index!+match[0].length);
+      if(story?.type!=='story' || !Array.isArray(story.content_elements)) continue;
+      let sameCanonical=false;
+      try { const canonical=new URL(story.canonical_url,url);sameCanonical=canonical.origin===requested.origin && canonical.pathname===requested.pathname; } catch {}
+      const sameId=typeof story._id==='string' && requested.pathname.split('/').filter(Boolean).at(-1)===story._id;
+      if(!sameId && !sameCanonical) continue;
+      const paragraphs: string[]=[];
+      const text=(value: unknown) => {
+        if(typeof value!=='string') return;
+        const fragment=load(value);fragment('script,style,noscript').remove();
+        const content=fragment.text().replace(/\s+/g,' ').trim();
+        if(content) paragraphs.push(content);
+      };
+      const visit=(items: any[], depth=0) => {
+        if(depth>32) return;
+        for(const item of items) {
+          if(!item || typeof item!=='object') continue;
+          if(['text','header'].includes(item.type)) text(item.content);
+          else if(item.type==='list' && Array.isArray(item.items)) {
+            for(const entry of item.items) typeof entry==='string'?text(entry):visit([entry],depth+1);
+          }
+          else if(['quote','blockquote'].includes(item.type) && Array.isArray(item.content_elements)) visit(item.content_elements,depth+1);
+        }
+      };
+      visit(story.content_elements);
+      // Empty verified story content must stay incomplete: navigation and image
+      // captions found by Readability are not a substitute for the article body.
+      return {text:paragraphs.join('\n\n'),publishedAt:dateIso(story.first_publish_date)};
+    }
+  }
+  return null;
 }
 
 export function discover(body: string, url: string, kind: string) {
@@ -92,7 +152,7 @@ export function discover(body: string, url: string, kind: string) {
   return { articles: [...new Map(articles.map(a => [a.url, a])).values()], sources, partial };
 }
 
-export function parseArticle(body: string, url: string, discovered: number, hint: string | null): Article & { dateSource: string | null; isArticle: boolean } {
+export function parseArticle(body: string, url: string, discovered: number, hint: string | null): Article & { dateSource: string | null; isArticle: boolean; textSource: string | null } {
   const $ = load(body);
   const meta = (key: string) => $(`meta[property="${key}"],meta[name="${key}"]`).first().attr('content')?.trim();
   let structured: any = {};
@@ -113,24 +173,31 @@ export function parseArticle(body: string, url: string, discovered: number, hint
     if (/^(og:|twitter:)/.test(key) && value) (socialTags[key] ??= []).push(value);
   });
   const publisherDate = publisherPublication($, url);
+  const publisher = publisherStory($,url);
   const dates = [
+    ['fusion.globalContent.first_publish_date', publisher?.publishedAt],
     ['jsonld.datePublished', structured.datePublished],
     ['article:published_time', meta('article:published_time')],
     ['datePublished', $('[itemprop="datePublished"]').attr('content')],
     ['pubdate', meta('pubdate')], [publisherDate?.source, publisherDate?.value], ['feed', hint],
   ];
   const date = dates.map(([source, value]) => [source, dateIso(value)]).find(([, value]) => value);
-  const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
+  const publisherBody=publisher?.text ?? null;
   let readable;
-  try { readable = new Readability(dom.window.document).parse(); } finally { dom.window.close(); }
-  const text = (structured.articleBody || readable?.textContent || $('article').text() || '').replace(/\s+/g, ' ').trim();
+  if(publisherBody===null) {
+    const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
+    try { readable = new Readability(dom.window.document).parse(); } finally { dom.window.close(); }
+  }
+  const structuredBody=typeof structured.articleBody==='string' && structured.articleBody.trim()?structured.articleBody:null;
+  const text = (publisherBody ?? (structuredBody || readable?.textContent || $('article').text() || '')).replace(/\s+/g, ' ').trim();
+  const textSource=publisherBody!==null?'fusion.globalContent.content_elements':structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
   return {
     canonicalUrl: normalizeUrl($('link[rel="canonical"]').attr('href') || url, url) || url,
     discoveredAt: new Date(discovered).toISOString(), publishedAt: date?.[1] || null,
     modifiedAt: dateIso(structured.dateModified || meta('article:modified_time')),
     title: String(structured.headline || meta('og:title') || readable?.title || $('title').text()).trim(),
     description: meta('description') || meta('og:description') || readable?.excerpt || null,
-    socialTags, text, dateSource: date?.[0] || null,
-    isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!hint,
+    socialTags, text, textSource, dateSource: date?.[0] || null,
+    isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!publisher || !!hint,
   };
 }

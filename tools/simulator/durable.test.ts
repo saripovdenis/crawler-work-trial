@@ -54,7 +54,7 @@ test('HTTP concurrent claims and completion retries are idempotent; reopen prese
     const path=`/internal/attempts/${task.attempt_id}/complete`;
     assert.equal((await post(path,{...value,lease_token:'bad'})).status,403);
     assert.deepEqual(await post(path,value),await post(path,value));
-    f.scheduler.process();f.scheduler.process();
+    await f.scheduler.processAsync();await f.scheduler.processAsync();
     assert.equal(f.db.prepare('SELECT polls FROM sources').get()!.polls,1);
     assert.equal(f.db.prepare('SELECT count(*) n FROM requests').get()!.n,1);
     assert.equal((await post('/internal/claims',{worker_id:'w',claim_id:'c0'})).body.task.attempt_id,task.attempt_id);
@@ -235,4 +235,143 @@ test('a repeated homepage link leaves the initial sample queue without rewriting
     assert.equal(row.priority,50);assert.equal(row.discovered,1234);assert.equal(row.published_hint,null);
     f.advance();assert.equal(f.scheduler.claim('w','article').task!.url,url);
   }finally{f.close();}
+});
+
+test('recent publication outranks bulk discovery while every fifth article drains old positive backlog',()=>{
+  const f=fixture();try {
+    f.db.exec("UPDATE sources SET next_poll=999999999;UPDATE crawl_tasks SET next_crawl_at=999999999");
+    const insert=f.db.prepare("INSERT INTO candidates(url,domain,source,discovered,published_hint,priority) VALUES (?,'bbc.com','x',?,?,100)");
+    insert.run('https://www.bbc.com/news/old-backlog',1,new Date(0).toISOString());
+    for(let i=0;i<6;i++) insert.run('https://www.bbc.com/news/fresh-'+i,900000-i,new Date(f.now()-1000-i*1000).toISOString());
+    migrateDurable(f.db);
+    for(let i=0;i<5;i++) {
+      const task=f.scheduler.claim('w','freshness-'+i).task!;
+      assert.equal(task.url,i===4?'https://www.bbc.com/news/old-backlog':'https://www.bbc.com/news/fresh-'+i);
+      f.scheduler.complete(task.attempt_id,response(f,task,404));f.scheduler.process();f.advance();
+    }
+    assert.equal(f.db.prepare("SELECT value FROM meta WHERE key='article-turns:bbc.com'").get()!.value,'5');
+  }finally{f.close();}
+});
+
+test('archived sources do not consume slots needed for current news sitemaps',()=>{
+  const f=fixture();try {
+    for(let i=0;i<20;i++) f.db.prepare("INSERT INTO sources(url,domain,kind) VALUES (?,'bbc.com','sitemap')").run('https://www.bbc.com/archive-'+i+'.xml');
+    const task=f.scheduler.claim('w','index').task!;
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<sitemapindex><sitemap><loc>https://www.bbc.com/news-latest.xml</loc></sitemap></sitemapindex>'));f.scheduler.process();
+    assert.ok(f.db.prepare("SELECT 1 FROM sources WHERE url='https://www.bbc.com/news-latest.xml'").get());
+  }finally{f.close();}
+});
+
+test('proven empty source yields to usable new articles while a quiet sole source keeps its cadence',()=>{
+  const f=fixture();try {
+    for(let i=0;i<3;i++) {
+      const task=f.scheduler.claim('w','empty-'+i).task!;
+      f.scheduler.complete(task.attempt_id,response(f,task,304,''));f.scheduler.process();f.advance();
+    }
+    f.scheduler.refreshSourceQuality();
+    const empty=f.db.prepare('SELECT * FROM sources').get()!;
+    assert.equal(f.scheduler.sourceInterval(empty,60000),60000);
+    const url='https://www.bbc.com/news/usable';
+    f.db.prepare("INSERT INTO sources(url,domain,kind) VALUES ('https://www.bbc.com/latest.xml','bbc.com','feed')").run();
+    f.db.prepare("INSERT INTO candidates(url,domain,source,discovered,priority,state) VALUES (?,'bbc.com','https://www.bbc.com/latest.xml',1,100,'done')").run(url);
+    f.db.prepare("INSERT INTO articles VALUES (?,'bbc.com',1,?,'1970-01-01T00:00:00Z','new','fingerprint','{}')").run(url,f.now());
+    f.scheduler.refreshSourceQuality();
+    assert.equal(f.scheduler.sourceInterval(empty,60000),300000);
+  }finally{f.close();}
+});
+
+test('successful discovery redirects become next poll destination with conditional headers',()=>{
+  const f=fixture();try {
+    let task=f.scheduler.claim('w','original').task!;
+    f.scheduler.complete(task.attempt_id,response(f,task,302,'',{location:'/latest.xml'}));f.scheduler.process();f.advance();
+    task=f.scheduler.claim('w','redirect').task!;assert.equal(task.url,'https://www.bbc.com/latest.xml');
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<rss><channel/></rss>',{etag:'version-1'}));f.scheduler.process();f.advance();
+    task=f.scheduler.claim('w','next-poll').task!;
+    assert.equal(task.url,'https://www.bbc.com/latest.xml');assert.equal(task.headers['If-None-Match'],'version-1');
+    assert.equal(f.db.prepare('SELECT url FROM sources').get()!.url,'https://www.bbc.com/');
+    f.scheduler.complete(task.attempt_id,response(f,task,404));f.scheduler.process();f.advance();
+    assert.equal(f.scheduler.claim('w','expired-redirect').task!.url,'https://www.bbc.com/');
+  }finally{f.close();}
+});
+
+test('permanent unsupported source format backs off six hours rather than retrying the same archive',()=>{
+  const f=fixture();try {
+    f.db.exec("UPDATE sources SET kind='feed'");
+    const task=f.scheduler.claim('w','unsupported').task!;
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<unsupported/>'));f.scheduler.process();
+    assert.equal(f.db.prepare('SELECT next_poll FROM sources').get()!.next_poll,f.now()+6*3600000);
+    assert.equal(f.db.prepare('SELECT processing FROM attempt_assignments').get()!.processing,'done');
+    assert.match(String(f.db.prepare('SELECT last_error FROM sources').get()!.last_error),/Not a supported/);
+  }finally{f.close();}
+});
+
+test('live archive parsing leaves the write lock free and permits claims while its worker runs',async()=>{
+  const f=fixture();try {
+    const task=f.scheduler.claim('w','source').task!;
+    const body='<rss><channel>'+Array.from({length:500},(_,i)=>'<item><link>https://www.bbc.com/news/large-'+i+'</link></item>').join('')+'</channel></rss>';
+    f.scheduler.complete(task.attempt_id,response(f,task,200,body));
+    const parsing=f.scheduler.processAsync();
+    assert.equal(f.db.isTransaction,false);
+    f.db.exec("INSERT INTO candidates(url,domain,source,discovered,priority) VALUES ('https://www.bbc.com/news/parallel','bbc.com','x',999999,100)");f.scheduler.ensureTask('https://www.bbc.com/news/parallel','article');f.advance();
+    assert.equal(f.scheduler.claim('w','parallel').task!.url,'https://www.bbc.com/news/parallel');
+    await parsing;
+    assert.equal(f.db.prepare('SELECT polls FROM sources').get()!.polls,1);
+    assert.equal(f.db.prepare('SELECT processing FROM attempt_assignments WHERE attempt_id=?').get(task.attempt_id)!.processing,'done');
+  }finally{await f.scheduler.close();f.close();}
+});
+
+test('source discovery and next poll use fetch finish even when parsing runs later',()=>{
+  const f=fixture();try {
+    const task=f.scheduler.claim('w','delayed-parse').task!;
+    const finished=f.now();
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<html><a href="https://www.bbc.com/news/article-1234567">A headline found in this response</a></html>'));
+    f.advance(10000);f.scheduler.process();
+    assert.equal(f.db.prepare('SELECT discovered FROM candidates').get()!.discovered,finished);
+    assert.equal(f.db.prepare('SELECT next_poll FROM sources').get()!.next_poll,finished+36000);
+  }finally{f.close();}
+});
+
+test('URL dates only rank recent links and never become publication evidence',async()=>{
+  const {urlRecencyPriority}=await import('../../config/discovery.js');
+  const now=Date.parse('2026-11-12T08:00:00Z');
+  assert.equal(urlRecencyPriority('https://finance.sina.com.cn/roll/2026-11-12/doc-a.shtml',now),75);
+  assert.equal(urlRecencyPriority('https://finance.sina.com.cn/roll/2026-11-11/doc-b.shtml',now),75);
+  assert.equal(urlRecencyPriority('https://finance.sina.com.cn/roll/2026-09-30/doc-c.shtml',now),50);
+  const f=fixture();try {
+    f.advance(now-f.now());f.db.exec('UPDATE sources SET polls=1');
+    const task=f.scheduler.claim('w','url-hint').task!;
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<a href="https://www.bbc.com/news/2026-11-12/story-1234567">A story with a dated URL</a>'));f.scheduler.process();
+    const row=f.db.prepare('SELECT priority,published_hint FROM candidates').get()!;
+    assert.equal(row.priority,75);assert.equal(row.published_hint,null);
+  }finally{f.close();}
+});
+
+test('interrupted chunked discovery replays without double counting or premature source success',async()=>{
+  const f=fixture();let restarted: Scheduler|undefined;let stopped: Promise<void>|undefined;
+  try {
+    const task=f.scheduler.claim('w','chunked').task!,finished=f.now();
+    const body='<rss><channel>'+Array.from({length:250},(_,i)=>'<item><link>https://www.bbc.com/news/chunk-'+i+'</link></item>').join('')+'</channel></rss>';
+    f.scheduler.complete(task.attempt_id,response(f,task,200,body,{etag:'complete-version'}));
+    const transaction=f.scheduler.transaction.bind(f.scheduler);
+    f.scheduler.transaction=(fn)=> {
+      const result=transaction(fn);
+      if(!stopped && Number(f.db.prepare('SELECT discovered FROM sources').get()!.discovered)===100) {
+        assert.equal(f.db.isTransaction,false);
+        stopped=f.scheduler.close();
+      }
+      return result;
+    };
+    await f.scheduler.processAsync();await stopped;
+    assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,100);
+    assert.equal(f.db.prepare('SELECT polls FROM sources').get()!.polls,0);
+    assert.equal(f.db.prepare('SELECT etag FROM sources').get()!.etag,null);
+    assert.equal(f.db.prepare('SELECT processing FROM attempt_assignments').get()!.processing,'pending');
+    restarted=new Scheduler(f.db,f.dir,f.now);await restarted.processAsync();
+    assert.equal(f.db.prepare('SELECT count(*) n FROM candidates').get()!.n,250);
+    const source=f.db.prepare('SELECT * FROM sources').get()!;
+    assert.equal(source.discovered,250);assert.equal(source.polls,1);assert.equal(source.etag,'complete-version');
+    assert.equal(f.db.prepare('SELECT count(*) n FROM requests').get()!.n,1);
+    assert.equal(f.db.prepare('SELECT min(discovered) n FROM candidates').get()!.n,finished);
+    assert.equal(f.db.prepare('SELECT max(discovered) n FROM candidates').get()!.n,finished);
+  }finally{await restarted?.close();await f.scheduler.close();f.close();}
 });

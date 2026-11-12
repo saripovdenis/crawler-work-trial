@@ -257,6 +257,12 @@ export default function ReconciliationPage() {
               </small>
             </section>
             <section>
+              <span>Matched &amp; complete</span>
+              <strong>{percent(summary?.completePercentage)}</strong>
+              <p>{summary ? `${number(summary.completeMatched)} of ${number(summary.total)} external articles fetched with a complete parse.` : "Waiting for data"}</p>
+              <small>Uses the same completeness definition as Charts.</small>
+            </section>
+            <section>
               <span>Not matched</span>
               <strong>{summary ? number(summary.unmatched) : "—"}</strong>
               <p>
@@ -355,6 +361,7 @@ export default function ReconciliationPage() {
                     <th>Domain</th>
                     <th>Coverage</th>
                     <th>Matched / sample</th>
+                    <th>Complete / sample</th>
                     {Object.values(names).map((n) => (
                       <th key={n}>{n}</th>
                     ))}
@@ -382,6 +389,7 @@ export default function ReconciliationPage() {
                       <td>
                         {r.total ? `${r.matched} / ${r.total}` : "No sample"}
                       </td>
+                      <td>{r.total ? `${r.completeMatched} / ${r.total}` : "No sample"}</td>
                       {Object.keys(names).map((id) => (
                         <td key={id}>{r.counts[id] || "—"}</td>
                       ))}
@@ -391,6 +399,15 @@ export default function ReconciliationPage() {
               </table>
             </div>
           </section>
+          {data?.dispatch?.available && (
+            <section className="reconcile-panel">
+              <div className="panel-heading"><div><h2>Dispatch · last hour</h2><p>Assignment to reported worker start; includes the selected domain.</p></div></div>
+              <p className="timing-note">{number(data.dispatch.attempts)} assignments · p50 {data.dispatch.p50Ms ?? "—"} ms · p95 {data.dispatch.p95Ms ?? "—"} ms · max {data.dispatch.maxMs ?? "—"} ms<br />
+                {number(data.dispatch.deadlineFailures)} internal deadline failures · {number(data.dispatch.unsent)} completed without a reported start · {number(data.dispatch.leaseExpiries)} expired leases.
+                {data.dispatch.byTransport.map((t: Row) => ` ${t.transport}: ${t.deadlineFailures} deadline failures / ${t.attempts} assignments.`).join("")}
+              </p>
+            </section>
+          )}
           <section className="reconcile-panel" id="article-timing">
             <div className="panel-heading">
               <div>
