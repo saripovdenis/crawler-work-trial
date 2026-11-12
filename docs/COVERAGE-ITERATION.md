@@ -117,3 +117,19 @@ The dispatch allowance is now five seconds and uncertain-request horizon 35s.
 Per-site limits, 20s HTTP timeout and 60s leases are unchanged. Tests prove spacing
 for a start near five seconds, rejection beyond it, and charged crash/restart
 reservations. All 81 tests pass.
+
+## Live validation after repair
+
+The completed archive pass changed 1,418 records: Eastmoney 411, CE 119,
+and Chosun 888. Comparing every committed before/after audit found no changes
+to original fetch/discovery timestamps and no invalid audit records.
+Current data: 536 / 6046 incomplete (8.87%). Remaining records stay flagged;
+missing or insufficient text/date evidence is never invented.
+
+Since the latest scheduler start, 311 assignments had no dispatch-deadline
+failures; 310 reported starts had p95 965 ms. This is a short live window, not
+a long-term guarantee. The original request ledger and limits are preserved.
+
+The current external sample remains about 28% matched (27% matched and complete).
+The 50% goal is not achieved. A 615-response parsing backlog remains after the
+backfill load; continued clean-window measurement and coverage work are required.
