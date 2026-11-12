@@ -3,6 +3,8 @@
 Set `CRAWLER_TIMING_LOGS=1` on **both** the scheduler and fetch worker at process
 startup. Disabled by default. Enable through the normal coordinated master
 release; do not replace or restart individual production services for this.
+Production deployment reads the committed `deploy/timing.env` for both services;
+it currently enables these diagnostics. Set its value to `0` and deploy to disable.
 No extra service, database migration, publisher request or tracing dependency.
 
 Each JSON line has `event: "crawler_timing"`, a UTC `at`, and a `stage`.

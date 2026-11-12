@@ -82,6 +82,11 @@ for unit in previous.glob('*.service'):
 for unit in previous.glob('*.service'):
     text=unit.read_text()
     for old in sorted(set(old_dirs),key=len,reverse=True): text=text.replace(old,str(release))
+    if unit.stem in ('exa-crawler','exa-fetch-worker'):
+        timing_env=f'EnvironmentFile={release}/deploy/timing.env'
+        if timing_env not in text:
+            if '[Service]\n' not in text: raise RuntimeError(f'No Service section in {unit}')
+            text=text.replace('[Service]\n',f'[Service]\n{timing_env}\n',1)
     (release/'deploy/rendered'/unit.name).write_text(text)
 for name,path in [('crawler','/var/lib/exa-crawler/data/crawler.sqlite'),('monitor','/var/lib/exa-crawler/reconciliation/reconciler.sqlite')]:
     source=sqlite3.connect('file:'+path+'?mode=ro',uri=True)
