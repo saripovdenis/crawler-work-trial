@@ -73,8 +73,6 @@
   .crawler-only-page .crawler-only-stats strong { font-size: 32px; }
   .crawler-only-page .reconcile-updated { width: 100%; padding-bottom: 0; }
   .crawler-only-page .panel-heading { flex-wrap: wrap; }
-  .crawler-only-page .reconcile-heading { gap: 12px; }
-  .crawler-only-page .reconcile-heading button { flex-shrink: 0; }
   .crawler-only-limit { padding: 12px 14px; }
 }
 @media (max-width: 380px) {

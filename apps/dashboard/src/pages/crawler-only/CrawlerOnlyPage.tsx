@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, BarChart3, ChevronRight, Clock3, FileText, Globe2, LayoutDashboard, RefreshCw, ScanSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sidebar } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import "../App.css";
 import "../charts/charts.css";
@@ -48,7 +48,6 @@ export default function CrawlerOnlyPage() {
   const [data, setData] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     const params = new URLSearchParams({ window });
     if (site) params.set("site", site);
@@ -77,36 +76,17 @@ export default function CrawlerOnlyPage() {
     const timer = setInterval(() => void load(), 30000);
     document.addEventListener("visibilitychange", load);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", load); };
-  }, [window, site, provider, show, page, refresh]);
+  }, [window, site, provider, show, page]);
   const summary = data?.summary;
   const limited = !!data?.rowsTruncated || (data?.rowCount ?? 0) < (data?.groupCount ?? 0);
   return <div className="app-shell reconciliation-page crawler-only-page">
-    <aside className="sidebar">
-      <a className="wordmark" href="/">exa<span className="wordmark-dot">*</span><span className="brand-divider" /><span className="brand-project">crawler<br />observatory</span></a>
-      <div className="workspace"><span className="workspace-icon"><Globe2 size={17} /></span><div>News discovery<span>External comparison</span></div><ChevronRight size={14} /></div>
-      <div className="nav-label">WORKSPACE</div>
-      <nav aria-label="Dashboard">
-        <a className="nav-item" href="/?view=overview"><LayoutDashboard size={17} />Overview</a>
-        <a className="nav-item" href="/?view=requests"><Activity size={17} />Request log</a>
-        <a className="nav-item" href="/?view=articles"><FileText size={17} />Articles</a>
-        <a className="nav-item" href="/?view=schedule"><Clock3 size={17} />Poll schedule</a>
-        <a className="nav-item" href="/charts"><BarChart3 size={17} />Charts</a>
-        <a className="nav-item" href="/reconciliation"><ScanSearch size={17} />Coverage</a>
-        <a className="nav-item" href="/freshness"><Clock3 size={17} />Freshness</a>
-        <a className="nav-item active" href="/crawler-only" aria-current="page"><FileText size={17} />Crawler-only</a>
-      </nav>
-      <div className="sidebar-note"><ScanSearch size={18} /><strong>Compare both directions.</strong><p>Our parsed articles against saved provider samples.</p></div>
-    </aside>
+    <Sidebar active="crawler-only" />
     <main>
-      <header className="topbar"><div className="breadcrumb"><a href="/">Workspace</a><ChevronRight size={13} /><strong>Crawler-only</strong></div><span>All timestamps in UTC</span></header>
       <div className="reconcile-content">
-        <div className="reconcile-heading">
-          <div className="charts-heading"><span className="charts-eyebrow">RECONCILIATION</span><h1>Crawler-only<span>.</span></h1><p>Which articles did we fetch that saved provider samples do not list?</p></div>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} />{loading ? "Loading…" : "Refresh view"}</Button>
-        </div>
+        <div className="charts-heading"><h1>Crawler-only</h1><p>Which articles did we fetch that saved provider samples do not list?</p></div>
         <div className="reconcile-filters">
           <label>Published within<select value={window} onChange={e => { setWindow(e.target.value); setPage(1); }}><option value="1h">Last hour</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option></select></label>
-          <label>Domain<select value={site} onChange={e => { setSite(e.target.value); setPage(1); }}><option value="">All 20 domains</option>{(data?.sites || []).map((domain: string) => <option key={domain}>{domain}</option>)}</select></label>
+          <label>Domain<select value={site} onChange={e => { setSite(e.target.value); setPage(1); }}><option value="">All domains</option>{(data?.sites || []).map((domain: string) => <option key={domain}>{domain}</option>)}</select></label>
           <label>Compare with<select value={provider} onChange={e => { setProvider(e.target.value); setPage(1); }}><option value="both">Google News + Exa</option><option value="google">Google News</option><option value="exa">Exa</option></select></label>
           <label>Status<select value={show} onChange={e => { setShow(e.target.value); setPage(1); }}><option value="all">All records</option><option value="crawler_only">Crawler-only · all evidence</option><option value="strong">Crawler-only · strong</option><option value="weak">Crawler-only · weak</option><option value="listed">Listed</option><option value="pending">May still be listed</option><option value="possible">Possible match</option><option value="not_comparable">Not comparable</option></select></label>
           <span className="reconcile-updated">Updated {time(data?.generatedAt)} UTC<SnapshotAge generatedAt={data?.generatedAt} cache={data?.cache} /></span>

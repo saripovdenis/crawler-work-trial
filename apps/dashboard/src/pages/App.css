@@ -662,7 +662,7 @@ button:active {
     border-bottom: 1px solid #e6e8ef;
     flex-direction: row;
     align-items: center;
-    gap: 18px;
+    gap: 12px;
   }
   .wordmark {
     font-size: 28px;
@@ -677,15 +677,18 @@ button:active {
   }
   .sidebar nav {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     margin: 0 0 0 auto;
+    min-width: 0;
+    overflow-x: auto;
   }
   .nav-item {
-    padding: 8px;
+    padding: 8px 6px;
     margin: 0;
     font-size: 0;
     gap: 0;
     width: auto;
+    flex-shrink: 0;
   }
   .nav-item svg {
     width: 18px;
