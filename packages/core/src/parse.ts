@@ -192,20 +192,25 @@ export function parseArticle(body: string, url: string, discovered: number, hint
   ];
   const date = dates.map(([source, value]) => [source, dateIso(value)]).find(([, value]) => value);
   const publisherBody=publisher?.text ?? null;
+  const structuredBody=typeof structured.articleBody==='string' && structured.articleBody.trim()?structured.articleBody:null;
+  const knownTitle=structured.headline || meta('og:title');
+  const knownDescription=meta('description') || meta('og:description');
+  // Readability contributes only text, a fallback title and a fallback excerpt.
+  // Skip its DOM when all three outputs already come from explicit metadata.
+  const completeStructured=!!(structuredBody && knownTitle && knownDescription);
   let readable;
-  if(publisherBody===null) {
+  if(publisherBody===null && !completeStructured) {
     const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
     try { readable = new Readability(dom.window.document).parse(); } finally { dom.window.close(); }
   }
-  const structuredBody=typeof structured.articleBody==='string' && structured.articleBody.trim()?structured.articleBody:null;
   const text = (publisherBody ?? (structuredBody || readable?.textContent || $('article').text() || '')).replace(/\s+/g, ' ').trim();
   const textSource=publisherBody!==null?'fusion.globalContent.content_elements':structuredBody?'jsonld.articleBody':readable?.textContent?'readability':text?'article':null;
   return {
     canonicalUrl: normalizeUrl($('link[rel="canonical"]').attr('href') || url, url) || url,
     discoveredAt: new Date(discovered).toISOString(), publishedAt: date?.[1] || null,
     modifiedAt: dateIso(structured.dateModified || meta('article:modified_time')),
-    title: String(structured.headline || meta('og:title') || readable?.title || $('title').text()).trim(),
-    description: meta('description') || meta('og:description') || readable?.excerpt || null,
+    title: String(knownTitle || readable?.title || $('title').text()).trim(),
+    description: knownDescription || readable?.excerpt || null,
     socialTags, text, textSource, dateSource: date?.[0] || null,
     isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!publisher || !!hint,
   };

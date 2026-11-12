@@ -104,3 +104,9 @@ The archive-repair receipt lookup now loads one batch index instead of rescannin
 request history per article. It selected identical request IDs for 200 production-copy
 records (566 ms versus 16 ms locally); four repair tests pass. The first production
 dry-run found 183 repairable records out of 200; unproven text/dates remain flagged.
+
+Further CPU checks found redundant Readability work when structured text, title,
+and description already supply every output. Skipping it produced identical
+fields on six archived controls (about 3–9 ms instead of 26–133 ms locally).
+Initial-sample eligibility now stops counting at eight, preserving the same
+selection decision while avoiding scans of thousands of completed candidates.

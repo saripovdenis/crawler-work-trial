@@ -375,3 +375,22 @@ test('interrupted chunked discovery replays without double counting or premature
     assert.equal(f.db.prepare('SELECT max(discovered) n FROM candidates').get()!.n,finished);
   }finally{await restarted?.close();await f.scheduler.close();f.close();}
 });
+
+test('initial sample remains capped at eight after additional completed history accumulates',()=>{
+  const f=fixture();try {
+    f.db.exec("UPDATE sources SET next_poll=999999999;UPDATE crawl_tasks SET next_crawl_at=999999999");
+    const insert=f.db.prepare("INSERT INTO candidates(url,domain,source,discovered,priority,state) VALUES (?,'bbc.com','x',?,0,?)");
+    for(let i=0;i<7;i++) insert.run('https://www.bbc.com/history-'+i,i,'done');
+    insert.run('https://www.bbc.com/unknown-first',900000,'pending');
+    insert.run('https://www.bbc.com/unknown-second',800000,'pending');
+    migrateDurable(f.db);
+    const task=f.scheduler.claim('w','seventh-completed').task!;
+    assert.equal(task.url,'https://www.bbc.com/unknown-first');
+    f.scheduler.complete(task.attempt_id,response(f,task,404));f.scheduler.process();f.advance();
+    assert.equal(f.scheduler.claim('w','sample-full').task,null);
+    for(let i=7;i<10;i++) insert.run('https://www.bbc.com/history-'+i,i,'failed');
+    assert.equal(f.db.prepare("SELECT count(*) n FROM candidates WHERE priority=0 AND state<>'pending'").get()!.n,11);
+    assert.equal(new Scheduler(f.db,f.dir,f.now).claim('w','larger-history').task,null);
+    assert.equal(f.db.prepare("SELECT state FROM candidates WHERE url='https://www.bbc.com/unknown-second'").get()!.state,'pending');
+  }finally{f.close();}
+});

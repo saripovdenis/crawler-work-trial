@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Readability } from '@mozilla/readability';
 import { nextAllowed, domainFor, classify, dateIso } from './policy.js';
 import { discover, parseArticle, publisherStoryFromHtml } from './parse.js';
 
@@ -99,4 +100,35 @@ test('direct archive story extraction matches normal parsing without executing s
   assert.equal(fast.text,parseArticle(html,url,Date.now(),null).text);
   assert.equal(fast.publishedAt,'2026-11-12T08:00:00.000Z');
   assert.equal(publisherStoryFromHtml(html,'https://www.chosun.com/news/DIFFERENT/'),null);
+});
+
+
+test('complete structured articles skip Readability with identical fields; missing inputs keep fallbacks',t=>{
+  const original=Readability.prototype.parse;
+  let readabilityCalls=0;
+  t.mock.method(Readability.prototype,'parse',function(this: Readability,...args: Parameters<typeof original>) {
+    readabilityCalls++;
+    return original.apply(this,args);
+  });
+  const url='https://www.bbc.com/source',discovered=Date.parse('2026-11-12T10:00:00Z');
+  const articleBody='The structured article contains its full original reporting. '.repeat(10);
+  const rendered='The rendered article supplies the fallback reporting and excerpt. '.repeat(12);
+  const structured={'@type':'NewsArticle',headline:'Metadata headline',articleBody,datePublished:'2026-11-12T08:00:00Z',dateModified:'2026-11-12T09:00:00Z'};
+  const page=(data: Record<string,unknown>,title=true,description=true)=>`<html><head><title>Fallback HTML title</title><link rel="canonical" href="/canonical"/><meta property="og:type" content="article"/>${title?'<meta property="og:title" content="Social headline"/>':''}${description?'<meta name="description" content="Metadata description"/><meta property="og:description" content="Social description"/>':''}<meta name="twitter:card" content="summary_large_image"/><script type="application/ld+json">${JSON.stringify(data)}</script></head><body><article><h1>Fallback HTML title</h1><p>${rendered}</p></article></body></html>`;
+  const result=parseArticle(page(structured),url,discovered,null);
+  assert.equal(readabilityCalls,0);
+  assert.deepEqual(result,{
+    canonicalUrl:'https://www.bbc.com/canonical',discoveredAt:'2026-11-12T10:00:00.000Z',
+    publishedAt:'2026-11-12T08:00:00.000Z',modifiedAt:'2026-11-12T09:00:00.000Z',
+    title:'Metadata headline',description:'Metadata description',
+    socialTags:{'og:type':['article'],'og:title':['Social headline'],'og:description':['Social description'],'twitter:card':['summary_large_image']},
+    text:articleBody.trim(),textSource:'jsonld.articleBody',dateSource:'jsonld.datePublished',isArticle:true,
+  });
+  assert.equal(classify(result.publishedAt,Date.parse('2026-11-12T07:00:00Z'),discovered,false,result.isArticle&&result.text.length>=200&&!!result.title),'new');
+  const noDescription=parseArticle(page(structured,true,false),url,discovered,null);
+  assert.equal(readabilityCalls,1);assert.ok(noDescription.description?.includes('fallback reporting'));
+  const noTitle={...structured,headline:undefined};
+  assert.equal(parseArticle(page(noTitle,false),url,discovered,null).title,'Fallback HTML title');assert.equal(readabilityCalls,2);
+  const noBody={...structured,articleBody:''};
+  assert.ok(parseArticle(page(noBody),url,discovered,null).text.includes('fallback reporting'));assert.equal(readabilityCalls,3);
 });

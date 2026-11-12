@@ -217,5 +217,5 @@ story bodies stay incomplete. SQLite/API are authoritative; old append-only JSON
 exports remain historical observations.
 
 Repairs also store `reprocessedAt` in the article payload, exposed as
-`crawler_reprocessed_at` in timing details. This preserves when corrected data
-became available, separately from the original fetch and first parse.
+`crawler_reprocessed_at` in timing details. This records the repair-run start separately from the original fetch and first parse;
+individual rows are corrected during that run.
