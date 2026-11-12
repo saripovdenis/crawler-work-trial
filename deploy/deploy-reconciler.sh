@@ -35,8 +35,10 @@ systemctl daemon-reload
 systemctl restart exa-crawler exa-observatory
 systemctl enable exa-reconciler
 systemctl restart exa-reconciler
-curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:4319/internal/health
-curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:4318/api/reconciliation --output reconcile-health.json
+# Existing scheduler startup scans can take over 20 seconds on the small VM.
+health_options=(--fail --silent --show-error --retry 120 --retry-connrefused --retry-delay 1 --retry-max-time 180 --connect-timeout 2 --max-time 10)
+curl "${health_options[@]}" http://127.0.0.1:4319/internal/health
+curl "${health_options[@]}" http://127.0.0.1:4318/api/reconciliation --output reconcile-health.json
 node -e 'const v=require("./reconcile-health.json"); console.log({ready:v.ready,summary:v.summary})'
 python3 - <<'VERIFY'
 import sqlite3
