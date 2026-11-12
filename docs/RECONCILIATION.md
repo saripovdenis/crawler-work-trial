@@ -173,3 +173,24 @@ this change does not enable purchases or reset charged calls. Google has no
 paid key here; RSS availability remains best effort. On restart, persisted due
 times are shortened to no later than last charged attempt + 10 minutes, preserving
 cooldowns and the six-second spacing between calls.
+
+## Result types and archived date repairs
+
+The API exposes `excludedNonArticles`, `excludedGroups` (URL and reason), and
+`unfilteredSummary`. Only known El Mundo topic/byline routes and Mediapart
+profile/listing routes are excluded. Unknown URLs and Google wrappers stay in
+the sample. The dashboard's expandable exclusions list makes this reviewable.
+UDN referral parameters are removed only for recognized `udn-`/`udn_` values.
+
+Missing CE/Eastmoney publication dates can be repaired without HTTP:
+
+```sh
+node --import tsx services/pipeline/src/extract/repair-publication.ts \
+  --db /path/crawler.sqlite --data-dir /path/data --hours 3 --limit 500
+# Add --apply --audit /path/new-audit.jsonl to write reviewed repairs.
+```
+
+Only successful, processed article archives with verified hashes qualify. The
+command preserves original fetch/discovery times and content, uses the same
+publication profile and classification function as the parser, and skips
+concurrent changes. Its before/after audit allows conditional rollback.

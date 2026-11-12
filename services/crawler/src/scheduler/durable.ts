@@ -261,7 +261,9 @@ export class Scheduler {
           const publication=item.published?Date.parse(item.published):null;
           const priority=publication!==null?(publication>=started?100:-10):source.polls>0?50:0;
           count+=Number(this.run(`INSERT OR IGNORE INTO candidates(url,domain,source,discovered,published_hint,priority) VALUES (?,?,?,?,?,?)`,item.url,site.domain,source.url,now,item.published,priority).changes);
-          if(item.published) this.run("UPDATE candidates SET published_hint=coalesce(published_hint,?),priority=max(priority,?) WHERE url=? AND state='pending'",item.published,priority,item.url);
+          // Repeated homepage sightings must not stay in the exhausted initial-sample queue.
+          // Keep the original discovery time; parsing still decides publication/newness.
+          if(item.published || (source.kind==='html' && priority>0)) this.run("UPDATE candidates SET published_hint=coalesce(published_hint,?),priority=max(priority,?) WHERE url=? AND state='pending'",item.published,priority,item.url);
           this.ensureTask(item.url,'article');
         }
       }

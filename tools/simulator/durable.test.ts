@@ -223,3 +223,16 @@ test('partial RSS processes only closed items and retries without conditional ca
     assert.equal(f.db.prepare('SELECT processing FROM attempt_assignments').get()!.processing,'done');
   }finally{f.close();}
 });
+
+test('a repeated homepage link leaves the initial sample queue without rewriting discovery time',()=>{
+  const f=fixture();try {
+    const url='https://www.bbc.com/news/articles/100000000';
+    f.db.prepare("INSERT INTO candidates(url,domain,source,discovered,priority) VALUES (?,'bbc.com','https://www.bbc.com/',1234,0)").run(url);
+    f.db.exec('UPDATE sources SET polls=1');
+    const task=f.scheduler.claim('w','homepage-again').task!;
+    f.scheduler.complete(task.attempt_id,response(f,task,200,'<html><a href="'+url+'">A current headline on the homepage</a></html>'));f.scheduler.process();
+    const row=f.db.prepare('SELECT * FROM candidates WHERE url=?').get(url)!;
+    assert.equal(row.priority,50);assert.equal(row.discovered,1234);assert.equal(row.published_hint,null);
+    f.advance();assert.equal(f.scheduler.claim('w','article').task!.url,url);
+  }finally{f.close();}
+});

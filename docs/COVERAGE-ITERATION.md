@@ -48,3 +48,27 @@ startup/restart passed. Desktop and 390px mobile layouts were checked with no co
 The startup check was fixed to wait for a new processed request rather than a
 historical row before stopping its worker. Live results must be reported
 separately from the baseline correction above.
+
+## Follow-up corrections
+
+Repeated HTML links now leave the initial sample queue while preserving their
+original discovery time. Previously, many URLs first seen during an initial poll
+remained priority zero forever, even when the homepage kept showing them.
+
+CE's `publishdate` metadata and Eastmoney's article-header date now have explicit
++08:00 site profiles. Page-generation comments are not publication evidence.
+`services/pipeline/src/extract/repair-publication.ts` can repair missing dates
+from verified archived article responses, with dry-run default and a write-ahead
+before/after audit. It preserves fetch/discovery times and article content.
+
+UDN's recognized referral parameters no longer defeat direct URL matching.
+Haberturk's singular/plural local-news suffixes are normalized consistently.
+Known topic/profile URLs are excluded with their reason and link visible in the
+API and dashboard; `unfilteredSummary` preserves the original denominator.
+Unknown result types, including Google wrappers, still count. Some provider
+results are navigation pages rather than newly published articles, so this
+sample is not a validated census of all news articles.
+
+Follow-up validation: all 59 tests, typecheck, boundary check and frontend build pass.
+The archive repair was also applied to a local database copy: four available
+archived responses repaired, with original timestamps preserved.

@@ -1,15 +1,28 @@
-import { load } from 'cheerio';
+import { load, type CheerioAPI } from 'cheerio';
 import { XMLParser } from 'fast-xml-parser';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { dateIso, normalizeUrl } from './policy.js';
+import { dateIso, normalizeUrl, domainFor } from './policy.js';
 import { sourcePriority } from '../../../config/discovery.js';
+import { publicationProfiles } from '../../../config/profiles.js';
 import type { Article } from './types.js';
 
 export type Found = { url: string; published: string | null };
 export type Source = { url: string; kind: string };
 const list = (v: any): any[] => v == null ? [] : Array.isArray(v) ? v : [v];
 const xml = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, processEntities: false });
+
+export function publisherPublication($: CheerioAPI, url: string): {value: string; source: string} | null {
+  const domain = domainFor(url), profile = domain && publicationProfiles[domain];
+  if (!profile) return null;
+  const element = $(profile.selector).first();
+  const raw = (profile.attribute ? element.attr(profile.attribute) : element.text())?.trim();
+  const parts = raw?.match(/^(\d{4})[-年](\d{1,2})[-月](\d{1,2})日?\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!parts) return null;
+  const [,year,month,day,hour,minute,second='00'] = parts;
+  const value = dateIso(`${year}-${month!.padStart(2,'0')}-${day!.padStart(2,'0')}T${hour}:${minute}:${second}${profile.offset}`);
+  return value ? {value, source: `site:${domain}:${profile.selector} (${profile.offset})`} : null;
+}
 
 export function discover(body: string, url: string, kind: string) {
   const articles: Found[] = [];
@@ -99,11 +112,12 @@ export function parseArticle(body: string, url: string, discovered: number, hint
     const value = $(e).attr('content');
     if (/^(og:|twitter:)/.test(key) && value) (socialTags[key] ??= []).push(value);
   });
+  const publisherDate = publisherPublication($, url);
   const dates = [
     ['jsonld.datePublished', structured.datePublished],
     ['article:published_time', meta('article:published_time')],
     ['datePublished', $('[itemprop="datePublished"]').attr('content')],
-    ['pubdate', meta('pubdate')], ['feed', hint],
+    ['pubdate', meta('pubdate')], [publisherDate?.source, publisherDate?.value], ['feed', hint],
   ];
   const date = dates.map(([source, value]) => [source, dateIso(value)]).find(([, value]) => value);
   const dom = new JSDOM(body, { url, virtualConsole: new VirtualConsole() });
@@ -117,6 +131,6 @@ export function parseArticle(body: string, url: string, discovered: number, hint
     title: String(structured.headline || meta('og:title') || readable?.title || $('title').text()).trim(),
     description: meta('description') || meta('og:description') || readable?.excerpt || null,
     socialTags, text, dateSource: date?.[0] || null,
-    isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!hint,
+    isArticle: !!structured['@type'] || meta('og:type') === 'article' || !!meta('article:published_time') || !!publisherDate || !!hint,
   };
 }

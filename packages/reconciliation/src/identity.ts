@@ -6,6 +6,10 @@ export function urlKey(raw: string): string | null {
     u.hash = "";
     for (const k of [...u.searchParams.keys()])
       if (/^(utm_|fbclid$|gclid$)/i.test(k)) u.searchParams.delete(k);
+    if (domainFor(u.href) === 'udn.com') {
+      for (const key of ['from', 'form'])
+        if (/^udn[-_]/i.test(u.searchParams.get(key) || '')) u.searchParams.delete(key);
+    }
     u.searchParams.sort();
     return (
       u.hostname.replace(/^www\./, "") +
@@ -27,7 +31,7 @@ export function titleKey(value: string) {
 // changed headline; domain/date uniqueness checks still apply in the matcher.
 export function matchingTitle(value: string, domain: string) {
   const suffixes: Record<string, RegExp> = {
-    'haberturk.com': /(?:\s+-\s+[^-]{1,80} Haberleri)?\s+-\s+Habert[üu]rk(?: Yerel Haberler| Son Dakika Haber)?\s*$/iu,
+    'haberturk.com': /(?:\s+-\s+[^-]{1,80} Haber(?:ler|leri)?)?\s+-\s+Habert[üu]rk(?: Yerel Haberler| Son Dakika Haber| Haberler)?\s*$/iu,
     'eastmoney.com': /\s*[_|–—-]\s*东方财富网\s*$/u,
     'ce.cn': /\s*[_|–—-]\s*中国经济网(?:——国家经济门户)?\s*$/u,
     'sina.com.cn': /\s*[_|–—-]\s*新浪(?:财经|网|新闻)(?:[_|–—-]新浪网)?\s*$/u,

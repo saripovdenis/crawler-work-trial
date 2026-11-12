@@ -4,6 +4,7 @@ import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
 import { urlKey, matchingTitle, date } from "./identity.js";
 import { attachFetchTiming } from "./timing.js";
+import { externalContentKind } from "./content-kind.js";
 type Row = Record<string, any>;
 export type ProviderTiming = {
   sighting_id: number;
@@ -208,6 +209,8 @@ export class CoverageReader {
       windowStart: start,
       windowTimestamp: "provider_published_at",
       unknownPublication: 0,
+      excludedNonArticles: 0,
+      excludedGroups: [] as { site: string; title: string; url: string; reason: string | null }[],
       windowEnd: now,
       generatedAt: now,
       sites: sites.map((s) => s.domain),
@@ -250,7 +253,12 @@ export class CoverageReader {
           `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url FROM articles WHERE (?='' OR domain=?)`,
         )
         .all(site, site) as Row[];
-      const groups = matchSightings(rows.slice(0, 50000), articles);
+      const allGroups = matchSightings(rows.slice(0, 50000), articles);
+      const excludedGroups = allGroups.flatMap(g => {
+        const kind = externalContentKind(g.url, g.site);
+        return kind.kind === 'non_article' ? [{site:g.site,title:g.title,url:g.url,reason:kind.reason}] : [];
+      });
+      const groups = allGroups.filter(g => externalContentKind(g.url, g.site).kind !== 'non_article');
       if (
         crawler
           .prepare(
@@ -348,7 +356,10 @@ export class CoverageReader {
         ...base,
         ready: true,
         summary: count(groups),
+        unfilteredSummary: count(allGroups),
         unknownPublication,
+        excludedNonArticles: excludedGroups.length,
+        excludedGroups,
         groups: displayed,
         groupCount: filtered.length,
         pageCount: Math.ceil(filtered.length / 50),

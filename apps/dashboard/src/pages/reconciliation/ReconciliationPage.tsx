@@ -274,6 +274,7 @@ export default function ReconciliationPage() {
             uses the publication date reported by each provider, in UTC. Exact URL
             matches are strongest; title + domain + publication time matches are probable.{" "}
             {data?.unknownPublication > 0 && `${number(data?.unknownPublication || 0)} sightings with unknown publication dates are excluded. `}
+            {data && data.excludedNonArticles > 0 && `${number(data.excludedNonArticles)} verified topic/profile pages are excluded. `}
             {data?.truncated && (
               <b>
                 One or more result sets reached a provider limit: this is a
@@ -281,6 +282,12 @@ export default function ReconciliationPage() {
               </b>
             )}
           </p>
+          {data && data.excludedNonArticles > 0 && (
+            <details className="reconcile-definition">
+              <summary>Review excluded pages ({data.excludedNonArticles}) · unfiltered coverage {percent(data.unfilteredSummary?.percentage)}</summary>
+              <ul>{data.excludedGroups.map((g: Row) => <li key={g.url}><a href={g.url} target="_blank" rel="noreferrer">{g.title || g.url}</a> · {g.reason.replaceAll('_',' ')}</li>)}</ul>
+            </details>
+          )}
           {summary && !provider && (
             <p className="reconcile-definition">
               <strong>Combined sample: {number(summary.total)} unique articles.</strong>{" "}

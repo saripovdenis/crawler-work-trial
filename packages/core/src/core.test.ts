@@ -52,3 +52,12 @@ test('article extraction includes canonical, text, social tags, publication evid
   assert.ok(article.text.length > 200);
   assert.equal(article.socialTags['og:title'][0], 'Test news');
 });
+
+test('publisher-local publication fields use explicit site profiles, not generation or HTTP dates',()=>{
+  const body='<html><head><title>A sufficiently long test headline</title></head><body><!--published at 2026/11/12 16:42:33 by server--><div id="topbox"><div class="tipbox"><div class="infos"><div class="item">2026年11月12日 16:27</div></div></div></div><article>'+('Article content. '.repeat(30))+'</article></body></html>';
+  const east=parseArticle(body,'https://finance.eastmoney.com/a/test.html',Date.now(),null);
+  assert.equal(east.publishedAt,'2026-11-12T08:27:00.000Z');assert.equal(east.isArticle,true);assert.match(east.dateSource!,/\+08:00/);
+  assert.equal(parseArticle(body,'https://bbc.com/news/test',Date.now(),null).publishedAt,null);
+  const ce=parseArticle('<meta name="publishdate" content="2026-11-12 16:30:09"><article>'+('Some news text. '.repeat(30))+'</article>','http://finance.ce.cn/test.shtml',Date.now(),null);
+  assert.equal(ce.publishedAt,'2026-11-12T08:30:09.000Z');assert.equal(ce.isArticle,true);
+});

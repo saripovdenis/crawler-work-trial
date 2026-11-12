@@ -137,6 +137,9 @@ test("matching uses normalized URLs, unique title/time fallback, dedupes provide
   assert.equal(matchSightings([row, google], []).length, 1);
   assert.equal(urlKey("http://bbc.com/news/a/?utm_source=x"), urlKey(url));
   assert.equal(titleKey("Ａ  Title!"), titleKey("a title"));
+  assert.equal(urlKey('https://udn.com/news/story/1/9874705?from=udn-ch1_breaknews-1-0-news'),urlKey('https://udn.com/news/story/1/9874705'));
+  assert.notEqual(urlKey('https://bbc.com/news/test?from=udn-ch1'),urlKey('https://bbc.com/news/test'));
+  assert.notEqual(urlKey('https://udn.com/news/story/1/2?from=other'),urlKey('https://udn.com/news/story/1/2'));
 });
 test("coverage agrees with SQL, handles all filters, excludes pending/failures, never writes crawler DB", () => {
   const f = fixture(),
@@ -391,6 +394,8 @@ test('publisher suffixes join Google and Exa without fuzzy or cross-domain match
   const groups=matchSightings([google,exa],[a]);
   assert.equal(groups.length,1);assert.equal(groups[0].match,'url');assert.equal(groups[0].provider_timings.length,2);
   assert.equal(matchSightings([google,exa],[]).length,1);
+  assert.equal(matchSightings([google],[{...a,title:title+' - Gaziantep Haber - Habertürk Yerel Haberler'}])[0].match,'title');
+  assert.equal(matchSightings([google],[{...a,title:title+' - Gaziantep Haberler - Habertürk Haberler'}])[0].match,'title');
   assert.equal(matchSightings([{...google,title:title+' tomorrow'}],[a])[0].match,null);
   assert.equal(matchSightings([google],[a,{...a,canonical_url:a.canonical_url+'-other'}])[0].match,null);
 });
@@ -406,5 +411,20 @@ test('default coverage window is publication hour, not when an old article was f
     assert.equal(view.window,'1h');assert.equal(view.windowTimestamp,'provider_published_at');
     assert.equal(view.summary?.total,1);assert.equal(view.groups[0].url,url+'new');
     assert.equal(view.unknownPublication,1);assert.equal(view.summary?.googleOnly,1);assert.equal(view.summary?.shared,0);
+  }finally{db.close();s.db.close();f.close();}
+});
+
+test('confirmed index pages are excluded transparently; unknown result types still count',()=>{
+  const f=fixture(),s=new MonitorStore(f.path),crawlerPath=join(f.dir,'crawler.sqlite'),db=new DatabaseSync(crawlerPath);
+  try {
+    db.exec('CREATE TABLE articles(canonical_url TEXT,domain TEXT,published TEXT,classification TEXT,payload TEXT,discovered INTEGER,fetched INTEGER)');
+    s.configure(providerConfig({EXA_API_KEY:'test'}).filter(c=>c.id==='exa'),now-1000);
+    const job=s.claim(now-1000)!;job.site='elmundo.es';
+    s.success(job,[sighting('elmundo.es','https://www.elmundo.es/e/et/eta.html','Noticias de ETA',now-1000)!,sighting('elmundo.es','https://www.elmundo.es/espana/2026/11/12/story.html','An actual story',now-1000)!],2,false,null,now-500);
+    const view=new CoverageReader(f.path,crawlerPath).get(new URLSearchParams(),now);
+    assert.equal(view.summary?.total,1);assert.equal(view.excludedNonArticles,1);
+    assert.equal(view.excludedGroups[0].reason,'topic_page');
+    assert.equal('unfilteredSummary' in view && view.unfilteredSummary.total,2);
+    assert.equal(s.db.prepare('SELECT count(*) n FROM external_sightings').get()!.n,2);
   }finally{db.close();s.db.close();f.close();}
 });
