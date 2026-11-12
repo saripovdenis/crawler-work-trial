@@ -21,10 +21,16 @@ export class ArchiveStore {
     try {
       const signature=this.signature(path)+':'+expectedBytes;
       if(this.verified.get(hash)===signature)return true;
-      const body=gunzipSync(readFileSync(path),{maxOutputLength:MAX_RESPONSE_BYTES});
-      if(body.length!==expectedBytes || createHash('sha256').update(body).digest('hex')!==hash)return false;
-      this.verified.set(hash,signature);return true;
+      this.readVerified(hash,expectedBytes);return true;
     } catch {this.verified.delete(hash);return false;}
+  }
+  readVerified(hash:string,expectedBytes:number):Buffer {
+    if(!/^[a-f0-9]{64}$/.test(hash))throw new Error('Invalid archive reference');
+    const path=resolve(this.directory,'snapshots',hash+'.gz'),signature=this.signature(path)+':'+expectedBytes;
+    const body=gunzipSync(readFileSync(path),{maxOutputLength:MAX_RESPONSE_BYTES});
+    if(body.length!==expectedBytes || createHash('sha256').update(body).digest('hex')!==hash)
+      throw new Error('Archive integrity mismatch');
+    this.verified.set(hash,signature);return body;
   }
   store(body:Buffer,hash=createHash('sha256').update(body).digest('hex')) {
     if(body.length>MAX_RESPONSE_BYTES || !/^[a-f0-9]{64}$/.test(hash))throw new Error('Invalid archive');

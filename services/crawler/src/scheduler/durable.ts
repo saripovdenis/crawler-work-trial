@@ -13,6 +13,7 @@ import { reserveSlot, slotDue } from './budget.js';
 import { ArchiveParser, type ParseResult } from './parse-worker.js';
 import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
 import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
+import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js';
 const UA = 'ExaTrialCrawler/0.1';
 type Row = Record<string, any>;
 export class ContractError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
@@ -23,6 +24,8 @@ export class Scheduler {
   private articlesSinceDiscovery = 3;
   private articleParses = 0;
   private closing=false;
+  private metricsStartedAt=Date.now();
+  private reuse={mappingSkips:0,avoidedDownloads:0,archivedReparses:0,aliasesRecorded:0};
   private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) { migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db); this.refreshSourceQuality(); }
@@ -57,6 +60,12 @@ export class Scheduler {
     let statement=this.statements.get(sql);
     if(!statement) {statement=this.db.prepare(sql);this.statements.set(sql,statement);}
     return statement;
+  }
+  cacheMetrics() {
+    const now=this.clock();
+    return {generatedAt:now,since:this.metricsStartedAt,parserVersion:PARSER_VERSION,extraction:this.parser.metrics,...this.reuse,
+      backlog:this.all("SELECT t.purpose,count(*) count,min(r.finished) oldest FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' GROUP BY t.purpose"),
+      requestsLastMinute:this.one('SELECT count(*) count FROM requests WHERE started>=?',now-60_000)!.count};
   }
   one(sql: string, ...params: any[]): Row | undefined { return this.statement(sql).get(...params); }
   all(sql: string, ...params: any[]): Row[] { return this.statement(sql).all(...params); }
@@ -367,8 +376,14 @@ export class Scheduler {
           }
         } else if(!value.error) body=this.readBody(value);
         if(parsed?.kind==='discovery') {
-          if(!await this.mapDiscoveryChunks(task,value,parsed.found)) return;
-          parsed={kind:'discovery',found:{...parsed.found,articles:[]}};
+          const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
+          const started=this.one('SELECT started FROM sites WHERE domain=?',task.domain)!.started;
+          const mappingKey=createHash('sha256').update(JSON.stringify([PARSER_VERSION,value.body_hash,task.current_url,
+            source.kind,source.polls>0,source.depth,started,Math.floor(this.clock()/86400_000)])).digest('hex');
+          const completed=this.one('SELECT value FROM meta WHERE key=?','mapping:'+task.url)?.value;
+          if(!parsed.found.partial && completed===mappingKey)this.reuse.mappingSkips++;
+          else if(!await this.mapDiscoveryChunks(task,value,parsed.found)) return;
+          parsed={...parsed,found:{...parsed.found,articles:[]},mappingKey};
         }
         // Parsing and decompression above happen without holding a write lock.
         this.finishProcessing(a,task,value,body,parsed);
@@ -462,6 +477,8 @@ export class Scheduler {
       // Do not cache a partial response: next poll must request the complete body.
       this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial RSS: only complete items processed':null,due,count,partial?null:(value.headers.etag??source.etag),partial?null:(value.headers['last-modified']??source.modified),task.url);
       this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','source-final:'+task.url,task.current_url);
+      if(!partial && parsed?.mappingKey)
+        this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','mapping:'+task.url,parsed.mappingKey);
       this.run("UPDATE crawl_tasks SET state='ready',hops=0,next_crawl_at=? WHERE id=?",due,task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=0 WHERE domain=?',site.domain);
     } else {

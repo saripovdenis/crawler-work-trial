@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { db, dataDir, summary } from '../../../../packages/db/src/store.js';
 import { discoverySeeds } from '../../../../config/discovery.js';
 import { sites } from '../../../../config/sites.js';
-import { acquireLock } from '../../../../packages/protocol/src/files.js';
+import { acquireLock, atomicWrite } from '../../../../packages/protocol/src/files.js';
 import { Scheduler } from './durable.js';
 import { importAudits } from '../../../../packages/reconciliation/src/audits.js';
 import { schedulerServer } from './server.js';
@@ -23,6 +23,7 @@ const server=schedulerServer(scheduler);
 const report=()=> {
   db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES ('heartbeat',?)").run(new Date().toISOString());
   writeFileSync(resolve(dataDir,'status.json'),JSON.stringify(summary(),null,2));
+  atomicWrite(resolve(dataDir,'cache-metrics.json'),JSON.stringify(scheduler.cacheMetrics()));
 };
 const processing=setInterval(()=> {try {scheduler.recover(false);void scheduler.processAsync().catch(e=>console.error('archive processing failed',e));}catch(e){console.error('scheduler recovery failed',e);}},1000);
 const quality=setInterval(()=> {try {scheduler.refreshSourceQuality();}catch(e){console.error('source quality refresh failed',e);}},60_000);
