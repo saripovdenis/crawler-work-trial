@@ -16,6 +16,7 @@ import "../App.css";
 import "../charts/charts.css";
 import "../reconciliation/reconciliation.css";
 import "./freshness.css";
+import TimingComparison from "./TimingComparison";
 import ArticleTiming from "../reconciliation/ArticleTiming";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 type Row = Record<string, any>;
@@ -162,7 +163,7 @@ export default function FreshnessPage() {
               <h1>
                 Freshness<span>.</span>
               </h1>
-              <p>How long after publication do we finish downloading an article?</p>
+              <p>Compare your crawler’s download with Google News and Exa observations, starting at publication.</p>
             </div>
             <Button
               variant="outline"
@@ -206,7 +207,7 @@ export default function FreshnessPage() {
               </select>
             </label>
             <label>
-              Article sample
+              Compare with
               <select
                 value={provider}
                 onChange={(e) => {
@@ -214,19 +215,12 @@ export default function FreshnessPage() {
                   setPage(1);
                 }}
               >
-                <option value="">Combined provider sample</option>
+                <option value="">Google News + Exa</option>
                 {Object.entries(names).map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
-              Timing view
-              <select value={baseline} onChange={e => setBaseline(e.target.value)}>
-                <option value="published">Publication → our download</option>
-                <option value="observed">Our download vs our provider poll</option>
               </select>
             </label>
             <span className="reconcile-updated">
@@ -249,6 +243,18 @@ export default function FreshnessPage() {
               Reconciler heartbeat is stale. These results may be out of date.
             </div>
           )}
+          <TimingComparison data={freshness?.comparison} loading={loading} cadence={data?.cadenceMinutes ?? 10} />
+          <details className="freshness-advanced">
+            <summary>More diagnostics: our crawler across all matched articles</summary>
+            <div className="reconcile-filters">
+            <label>
+              Timing view
+              <select value={baseline} onChange={e => setBaseline(e.target.value)}>
+                <option value="published">Publication → our download</option>
+                <option value="observed">Our download vs our provider poll</option>
+              </select>
+            </label>
+            </div>
           <div className="reconcile-stats freshness-stats" aria-live="polite" aria-busy={loading}>
             {[["p50", "Half of timed articles"], ["p75", "75% of timed articles"], ["p90", "90% of timed articles"]].map(([key, description]) => (
               <section key={key} className={key === "p50" ? "coverage-hero" : ""}>
@@ -324,6 +330,7 @@ export default function FreshnessPage() {
               </tr>)}</tbody>
             </table></div>
           </section>
+          </details>
           <ArticleTiming data={data} matches={matches} setMatches={setMatches} page={page} setPage={setPage} loading={loading} />
         </div>
       </main>

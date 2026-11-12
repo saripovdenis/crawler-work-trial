@@ -45,3 +45,26 @@ or crawler changes are involved.
   time. Ten-minute polling, outages and quota limits can make apparent leads larger.
 - Responses share Coverage's 15-second memory cache, on a separate cache key.
   UI refreshes every 30 seconds while visible. Both databases are opened read-only.
+
+### Shared-article timing comparison
+
+The primary Freshness chart compares **our download completion**, **our first
+Google News observation** and **our first Exa observation**. It has one row each
+for P50, P75 and P90. These are elapsed times after publication, not a chart of
+provider indexing speed. Provider observation can lag actual availability by a
+poll interval or more. No extra provider calls are made.
+
+`freshness.comparison` uses only articles matched to a successful crawler download
+with an observation from every selected provider and at least one known publication
+date. All series use that exact same cohort. Each article's baseline is the earliest
+publication time reported by the selected providers. A provider-specific baseline
+is deliberately not subtracted from each series: differing dates would create a
+false timing advantage. Differences in reported dates, probable title matches,
+incomplete parses and negative timing anomalies are counted explicitly. Missing
+fetches, observations and dates are excluded with separate counts, never zero-filled.
+
+Percentiles use nearest rank on per-article elapsed times over the full filtered
+sample before pagination. They are not differences of independently calculated
+percentiles. A single-provider filter compares our crawler and that provider on
+their shared cohort. An empty cohort shows no percentage or timing result. The
+existing crawler-only metrics remain in an expandable diagnostics section.
