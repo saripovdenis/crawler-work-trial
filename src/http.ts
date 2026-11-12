@@ -4,15 +4,17 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createRequire } from 'node:module';
-import { get, all, run, dataDir } from './store.js';
-import { domainFor, nextAllowed } from './policy.js';
+import { db, get, run, dataDir } from './store.js';
+import { domainFor } from './policy.js';
 import { sites } from './sites.js';
+import { reserveSlot } from './budget.js';
+import { fetchResponse, USER_AGENT } from './transport.js';
 
 const robotsParser: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
 
 export const controller = new AbortController();
 export const signal = controller.signal;
-export const USER_AGENT = 'ExaTrialCrawler/0.1';
+export { USER_AGENT } from './transport.js';
 export const pause = (ms: number) => sleep(ms, undefined, { signal });
 export class Denied extends Error {}
 type ResponseData = { url: string; status: number; body: string; headers: Headers };
@@ -23,13 +25,9 @@ async function reserve(url: string, purpose: string, crawlDelay: number): Promis
   if (!domain) throw new Denied(`Outside configured domains: ${url}`);
   const rpm = sites.find(s => s.domain === domain)!.requestsPerMinute;
   while (!signal.aborted) {
-    const now = Date.now();
-    const site = get<{ started: number; cooldown: number }>('SELECT * FROM sites WHERE domain=?', domain)!;
-    const recent = all<{ started: number }>('SELECT started FROM requests WHERE domain=? ORDER BY id DESC LIMIT 61', domain).reverse().map(r => r.started);
-    const due = Math.max(site.cooldown, nextAllowed(now, site.started, rpm, recent, crawlDelay));
-    if (due > now) { await pause(due - now); continue; }
-    // No await between checking the window and recording: shared event-loop lock.
-    return Number(run('INSERT INTO requests(domain,url,purpose,started) VALUES (?,?,?,?)', domain, url, purpose, now).lastInsertRowid);
+    const slot = reserveSlot(db, domain, url, purpose, rpm, crawlDelay);
+    if (slot.id !== undefined) return slot.id;
+    await pause(Math.max(1, slot.due - Date.now()));
   }
   throw new Error('Stopped');
 }
@@ -37,10 +35,7 @@ async function reserve(url: string, purpose: string, crawlDelay: number): Promis
 async function raw(url: string, purpose: string, headers: Record<string, string> = {}, delay = 0): Promise<ResponseData> {
   const id = await reserve(url, purpose, delay);
   try {
-    const response = await fetch(url, {
-      redirect: 'manual', headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xml,application/rss+xml,*/*;q=0.5', ...headers },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
-    });
+    const response = await fetchResponse(url, headers, signal);
     run('UPDATE requests SET status=?,headers=? WHERE id=?', response.status, JSON.stringify(Object.fromEntries(response.headers)), id);
     const chunks: Uint8Array[] = [];
     let length = 0;
