@@ -1,5 +1,8 @@
 # Repository move audit
 
+Test files and harnesses mentioned below were later removed at the user's request.
+See `AGENTS.md` for the current validation policy.
+
 Baseline: `2fc8e49`. Existing files were moved with `git mv` in separate shared-code,
 crawler, and dashboard commits. Tests/fixtures and deployment/docs follow separately.
 

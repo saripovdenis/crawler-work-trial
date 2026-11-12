@@ -1,5 +1,8 @@
 # Coverage iteration, 12 November 2026
 
+Test results below predate removal of automated suites at the user's request.
+Current validation uses static checks, builds and manual inspection; see `AGENTS.md`.
+
 Previous working version was pushed as `96c7386` before starting this iteration.
 
 ## Baseline

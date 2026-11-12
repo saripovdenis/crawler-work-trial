@@ -113,7 +113,7 @@ RECONCILER_DB=data/reconciler.sqlite npm run scheduler
 `GET /api/reconciliation?window=24h&site=bbc.com&provider=exa` is read-only.
 Unknown filters return 400. `/reconciliation` is the public dashboard page.
 
-Production: run `npm test` and build the frontend locally, then upload a clean release plus its dist,
+Production: run type and boundary checks and build the frontend locally, then upload a clean release plus its dist,
 install credentials in `/etc/exa-reconciler.env` (root-owned 0600), then run
 `sudo bash deploy/deploy-reconciler.sh /opt/exa-crawler/reconcile-COMMIT`.
 The script preserves active unit settings, updates scheduler/API code, and adds
@@ -125,11 +125,8 @@ No migration or budget reset is needed.
 Roll back by restoring the saved units in the release's `deploy/previous-units`
 and restarting them; stop the reconciler if reverting the feature entirely.
 
-Tests use saved/synthetic provider responses, mock transport and SQLite copies;
-no test contacts a publisher. Tests cover destination/redirect refusal, all
-provider shapes, time filtering, restart quotas, matching, empty samples, audit
-provenance/budgets and API filters. Live provider smoke tests are charged and
-retained in the same ledger shipped to production.
+Automated suites were removed by project preference. Manual provider calls consume
+quota and remain recorded in the provider ledger; avoid them for routine validation.
 
 Source: [Exa search](https://exa.ai/docs/reference/search).
 Google RSS is unofficial and may change.
