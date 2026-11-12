@@ -6,6 +6,9 @@ export const chromeSites = new Set(['hoodline.com', 'eleconomista.es']);
 export const publicationProfiles: Record<string, {selector: string; attribute?: string; offset: string}> = {
   'ce.cn': {selector: 'meta[name="publishdate"]', attribute: 'content', offset: '+08:00'},
   'eastmoney.com': {selector: '#topbox .tipbox .infos > .item', offset: '+08:00'},
+  // Sina news and Kandian (k.sina.com.cn) pages give this field without a zone.
+  // Zoned values, as on finance pages, are still read by the generic path first.
+  'sina.com.cn': {selector: 'meta[property="article:published_time"]', attribute: 'content', offset: '+08:00'},
 };
 
 // Verified Arc story JSON is archived in these publishers' article responses.
