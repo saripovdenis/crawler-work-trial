@@ -7,7 +7,8 @@ const IN_FLIGHT_MS = 30_000;
 
 export function reserveSlot(db: DatabaseSync, domain: string, url: string,
   purpose: string, rpm: number, crawlDelay: number, clock?: number): { id?: number; due: number } {
-  db.exec('BEGIN IMMEDIATE');
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     const now = clock ?? Date.now();
     const site = db.prepare('SELECT started,cooldown FROM sites WHERE domain=?').get(domain) as { started: number; cooldown: number } | undefined;
@@ -20,7 +21,7 @@ export function reserveSlot(db: DatabaseSync, domain: string, url: string,
       due = Math.max(due, nextAllowed(now, site.started, rpm, [lastPossibleDispatch], crawlDelay));
     }
     const id = due <= now ? Number(db.prepare('INSERT INTO requests(domain,url,purpose,started) VALUES (?,?,?,?)').run(domain, url, purpose, now).lastInsertRowid) : undefined;
-    db.exec('COMMIT');
+    if (ownsTransaction) db.exec('COMMIT');
     return { id, due };
-  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  } catch (error) { if (ownsTransaction) db.exec('ROLLBACK'); throw error; }
 }
