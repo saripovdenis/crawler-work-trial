@@ -47,6 +47,9 @@ export class Observatory {
     const queueRows = this.all(
       "SELECT domain,count(*) AS total,sum(priority>0) AS ready FROM candidates WHERE state='pending' GROUP BY domain",
     );
+    const staleRows = this.all(
+      "SELECT domain,count(*) AS n FROM candidates WHERE state='stale' GROUP BY domain",
+    );
     const configurations = this.all("SELECT * FROM sites");
     const perSite = sites.map((site) => {
       const r = requestRows.find((r) => r.domain === site.domain) || {};
@@ -83,6 +86,7 @@ export class Observatory {
         fresh: a.fresh || 0,
         queued: q.total || 0,
         priorityQueued: q.ready || 0,
+        stale: staleRows.find((r) => r.domain === site.domain)?.n || 0,
         nextEligible: Math.max(availableAt, s.next_poll || now),
         lastError: error || null,
         health: !s.healthy

@@ -33,6 +33,22 @@ Successful policies and 404/410 results retain the existing six-hour lifetime;
 A robots request redirected away from `/robots.txt` to an HTML page is a soft 404
 and is stored like a 404; HTML served at `/robots.txt` itself remains a failure.
 
+### Stale links
+
+Once a minute the scheduler retires waiting article links first seen more than
+three hours ago (`priority>0`, task still `ready`) as `stale`, without a request.
+The row is kept, so a page that keeps showing the link does not queue it again.
+`/api/overview` reports the stale count per site.
+
+### Fresh-link turn
+
+Every fifth article turn takes the newest waiting link with no date signal of its
+own (`priority<75`) that was first seen in the last ten minutes on a proven page:
+at least 12 successful polls in the last hour, at least 20 dated links fetched in
+the last six hours, and at least 70% of those under an hour old when first seen.
+Without such a link the turn drains the oldest waiting link as before.
+`/api/cache` lists the proven pages and counts these turns.
+
 A bounded memory cache reuses parsed rules. ETag/Last-Modified validators persist
 in `meta`, tied to the exact response URL, and conditional refreshes still spend a
 normal request slot. A 304 renews the existing policy, including disallow rules;

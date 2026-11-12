@@ -26,7 +26,8 @@ const report=()=> {
   atomicWrite(resolve(dataDir,'cache-metrics.json'),JSON.stringify(scheduler.cacheMetrics()));
 };
 const processing=setInterval(()=> {try {scheduler.recover(false);void scheduler.processAsync().catch(e=>console.error('archive processing failed',e));}catch(e){console.error('scheduler recovery failed',e);}},1000);
-const quality=setInterval(()=> {try {scheduler.refreshSourceQuality();}catch(e){console.error('source quality refresh failed',e);}},60_000);
+const quality=setInterval(()=> {try {scheduler.refreshSourceQuality();}catch(e){console.error('source quality refresh failed',e);}
+  try {scheduler.expireStale();}catch(e){console.error('stale link expiry failed',e);}},60_000);
 const heartbeat=setInterval(report,30_000);
 const audits=setInterval(()=> {try {
   if(process.env.RECONCILER_DB)importAudits(db,resolve(process.env.RECONCILER_DB));

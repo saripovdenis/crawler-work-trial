@@ -18,6 +18,12 @@ import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
 import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
 import { elapsedMs, timingEnabled, timingLog } from '../../../../packages/protocol/src/timing.js';
 const UA = 'ExaTrialCrawler/0.1';
+const STALE_LINK_MS = 3 * 3600_000;
+const FRESH_SCORE_WINDOW_MS = 6 * 3600_000;
+const FRESH_SOURCE_MIN_POLLS = 12;   // successful polls in the last hour: at least one per five minutes
+const FRESH_SOURCE_MIN_DATED = 20;
+const FRESH_SOURCE_MIN_SHARE = 0.7;
+const FRESH_LINK_MS = 10 * 60_000;
 const MAPPING_VERSION=createHash('sha256').update(PARSER_VERSION).update(readFileSync(new URL('./durable.ts',import.meta.url))).digest('hex');
 type Row = Record<string, any>;
 export class ContractError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
@@ -33,18 +39,35 @@ export class Scheduler {
   private metricsStartedAt=Date.now();
   private lastBacklog?:{at:number;count:number};
   private reuse={mappingSkips:0,avoidedDownloads:0,pendingArchiveWaits:0,archivedReparses:0,aliasesRecorded:0};
+  private freshTurns = 0;
   private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
-  private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number }>();
+  private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number; dated: number; fresh: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) {
     migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
     this.archives=new ArchiveStore(directory);this.aliases=new ArticleAliases(db);
     this.reuse.aliasesRecorded=this.aliases.backfill();this.refreshSourceQuality();
   }
+  // A link that has waited this long since it was first seen can no longer be
+  // a fresh article. Retire it as 'stale' without spending a request; the row
+  // stays, so the same link is not queued again when a page keeps showing it.
+  // Only waiting links are touched: leased or downloaded tasks finish normally.
+  expireStale(limit = 5000): number {
+    return this.transaction(() => {
+      const rows=this.all(`SELECT c.url,t.id FROM candidates c
+        JOIN crawl_tasks t ON t.url=c.url AND t.purpose='article'
+        WHERE c.state='pending' AND c.priority>0 AND c.discovered<? AND t.state='ready' LIMIT ?`,this.clock()-STALE_LINK_MS,limit);
+      for(const row of rows) {
+        this.run("UPDATE candidates SET state='stale',last_error='Not fetched within 3 hours of discovery' WHERE url=?",row.url);
+        this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",row.id);
+      }
+      return rows.length;
+    });
+  }
   // Once per minute, outside claim transactions. Count successfully parsed NEW
   // articles, not raw links. A canonical redirect can conservatively undercount.
   refreshSourceQuality() {
     const since=this.clock()-3600_000;
-    this.sourceQuality=new Map(this.all('SELECT url,domain FROM sources').map(s=>[s.url,{domain:s.domain,polls:0,unchanged:0,newArticles:0}]));
+    this.sourceQuality=new Map(this.all('SELECT url,domain FROM sources').map(s=>[s.url,{domain:s.domain,polls:0,unchanged:0,newArticles:0,dated:0,fresh:0}]));
     for(const row of this.all(`SELECT t.url,count(*) polls,sum(r.status=304) unchanged FROM requests r
       JOIN attempt_assignments a ON a.request_id=r.id JOIN crawl_tasks t ON t.id=a.task_id
       WHERE r.finished>=? AND r.status IN (200,304) AND r.error IS NULL AND a.processing='done' AND a.process_error IS NULL AND t.purpose='discovery' GROUP BY t.url`,since)) {
@@ -54,6 +77,20 @@ export class Scheduler {
       WHERE a.fetched>=? AND a.classification='new' GROUP BY c.source`,since)) {
       const quality=this.sourceQuality.get(row.source); if(quality) quality.newArticles=row.n;
     }
+    // Per page: of its links fetched in the last six hours that carry a date,
+    // how many were under an hour old when the link was first seen there.
+    for(const row of this.all(`SELECT c.source,count(*) dated,sum(c.discovered-unixepoch(a.published)*1000<3600000) fresh
+      FROM articles a JOIN candidates c ON c.url=a.canonical_url
+      WHERE a.fetched>=? AND a.published IS NOT NULL GROUP BY c.source`,this.clock()-FRESH_SCORE_WINDOW_MS)) {
+      const quality=this.sourceQuality.get(row.source); if(quality) Object.assign(quality,{dated:row.dated,fresh:row.fresh});
+    }
+  }
+  // Pages polled often enough, and proven fresh often enough, that "first seen
+  // a few minutes ago" is good evidence the article itself is new.
+  freshSources(domain?: string) {
+    return [...this.sourceQuality.entries()].filter(([,q])=>(!domain || q.domain===domain)
+      && q.polls>=FRESH_SOURCE_MIN_POLLS && q.dated>=FRESH_SOURCE_MIN_DATED && q.fresh>=q.dated*FRESH_SOURCE_MIN_SHARE)
+      .map(([url,q])=>({url,domain:q.domain,pollsLastHour:q.polls,dated:q.dated,fresh:q.fresh}));
   }
   sourceScore(source: Row) {
     const q=this.sourceQuality.get(source.url);
@@ -78,7 +115,7 @@ export class Scheduler {
     const total=backlog.reduce((sum,row)=>sum+Number(row.count),0),previous=this.lastBacklog;
     this.lastBacklog={at:now,count:total};
     return {generatedAt:now,since:this.metricsStartedAt,parserVersion:PARSER_VERSION,mappingVersion:MAPPING_VERSION,extraction:this.parser.metrics,...this.reuse,
-      backlog,backlogTotal:total,backlogChange:previous?total-previous.count:null,
+      freshTurns:this.freshTurns,freshSources:this.freshSources(),backlog,backlogTotal:total,backlogChange:previous?total-previous.count:null,
       backlogGrowthPerMinute:previous && now>previous.at?(total-previous.count)*60000/(now-previous.at):null,
       requestsLastMinute:this.one('SELECT count(*) count FROM requests WHERE started>=?',now-60_000)!.count};
   }
@@ -132,12 +169,21 @@ export class Scheduler {
         const candidatePriority=baseline<8?'c.priority>=0':'c.priority>0';
         const articleTurns=Number(this.one('SELECT value FROM meta WHERE key=?','article-turns:'+site.domain)?.value||0);
         const catchup=articleTurns%5===4;
-        const order=catchup?'c.discovered ASC,c.rowid ASC':"CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC,c.discovered DESC,c.rowid ASC";
-        const orderParams=catchup?[]:[new Date(now-3600_000).toISOString(),now-3600_000];
-        const candidate = this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
+        const order="CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC,c.discovered DESC,c.rowid ASC";
+        const pick=(extra:string,orderBy:string,params:(string|number)[])=>this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
           WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
-          AND ${candidatePriority}
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY ${order} LIMIT 1`, site.domain,now,now,...orderParams);
+          AND ${candidatePriority}${extra}
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=c.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY ${orderBy} LIMIT 1`, site.domain,now,...params);
+        let candidate: Row | undefined;
+        if(catchup) {
+          // The fifth turn serves what the other four skip: the newest link with
+          // no date signal of its own, first seen minutes ago on a proven page.
+          const pages=this.freshSources(site.domain).map(s=>s.url);
+          if(pages.length) candidate=pick(` AND c.priority<75 AND c.discovered>=? AND c.source IN (${pages.map(()=>'?').join(',')})`,
+            'c.discovered DESC,c.rowid ASC',[now-FRESH_LINK_MS,...pages,now]);
+          if(candidate) this.freshTurns++;
+          else candidate=pick('','c.discovered ASC,c.rowid ASC',[now]);
+        } else candidate=pick('',order,[now,new Date(now-3600_000).toISOString(),now-3600_000]);
         if(candidate && isKnownListingUrl(candidate.url)) {
           // Retire pre-existing navigation candidates without spending a request.
           this.run("UPDATE candidates SET state='failed',last_error='Known listing route, not an article' WHERE url=?",candidate.url);
