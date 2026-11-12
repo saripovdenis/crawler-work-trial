@@ -15,6 +15,7 @@
     "config/**/*.ts",
     "services/**/*.ts",
     "apps/dashboard/src/api/**/*.ts",
-    "apps/dashboard/src/metrics/**/*.ts"
+    "apps/dashboard/src/metrics/**/*.ts",
+    "tools/**/*.ts"
   ]
 }
