@@ -16,6 +16,7 @@ import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache
 import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js';
 import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
 import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
+import { elapsedMs, timingEnabled, timingLog } from '../../../../packages/protocol/src/timing.js';
 const UA = 'ExaTrialCrawler/0.1';
 const MAPPING_VERSION=createHash('sha256').update(PARSER_VERSION).update(readFileSync(new URL('./durable.ts',import.meta.url))).digest('hex');
 type Row = Record<string, any>;
@@ -81,9 +82,18 @@ export class Scheduler {
       backlogGrowthPerMinute:previous && now>previous.at?(total-previous.count)*60000/(now-previous.at):null,
       requestsLastMinute:this.one('SELECT count(*) count FROM requests WHERE started>=?',now-60_000)!.count};
   }
-  one(sql: string, ...params: any[]): Row | undefined { return this.statement(sql).get(...params); }
-  all(sql: string, ...params: any[]): Row[] { return this.statement(sql).all(...params); }
-  run(sql: string, ...params: any[]) { return this.statement(sql).run(...params); }
+  private timedQuery<T>(sql:string,query:()=>T):T {
+    if(!timingEnabled)return query();
+    const started=performance.now();
+    try {return query();}
+    finally {
+      const duration_ms=elapsedMs(started);
+      if(duration_ms>=100)timingLog('slow_sql',{duration_ms,sql:sql.replace(/\s+/g,' ').slice(0,500)});
+    }
+  }
+  one(sql: string, ...params: any[]): Row | undefined { return this.timedQuery(sql,()=>this.statement(sql).get(...params)); }
+  all(sql: string, ...params: any[]): Row[] { return this.timedQuery(sql,()=>this.statement(sql).all(...params)); }
+  run(sql: string, ...params: any[]) { return this.timedQuery(sql,()=>this.statement(sql).run(...params)); }
   transaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
@@ -358,6 +368,7 @@ export class Scheduler {
     try { return new TextDecoder(charset).decode(bytes); } catch { return bytes.toString('utf8'); }
   }
   private finishProcessing(a: Row, task: Row, value: Completion, body: string, parsed?: ParseResult) {
+    const started=performance.now();
     const exports: {payload:string;fresh:boolean}[]=[];
     this.transaction(()=> {
       if(this.one('SELECT processing FROM attempt_assignments WHERE attempt_id=?',a.attempt_id)?.processing!=='pending') return;
@@ -366,11 +377,14 @@ export class Scheduler {
         this.one('SELECT value FROM meta WHERE key=?','alias-reparse:'+a.request_id)?.value===PARSER_VERSION);
       this.run("UPDATE attempt_assignments SET processing='done',process_error=NULL WHERE attempt_id=?",a.attempt_id);
     });
+    const transaction_ms=elapsedMs(started),exportStarted=performance.now();
     for(const item of exports) {
       try { appendFileSync(resolve(this.directory,'articles.jsonl'),item.payload+'\n');
         if(item.fresh) appendFileSync(resolve(this.directory,'new-articles.jsonl'),item.payload+'\n');
       } catch(e) {console.error('JSONL export failed',String(e));}
     }
+    timingLog('persist',{attempt_id:a.attempt_id,request_id:a.request_id,domain:task.domain,purpose:task.purpose,
+      transaction_ms,export_ms:elapsedMs(exportStarted),total_ms:elapsedMs(started)});
   }
   private processingFailure(a: Row, error: unknown) {
     const message=String(error), task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!;
@@ -416,12 +430,21 @@ export class Scheduler {
     // parsing another archive. They never dispatch a network request.
     this.processControls(8);
     if(this.processingJob) return this.processingJob;
+    const selectionStarted=performance.now();
     const a=this.nextProcessing();
+    const selection_ms=elapsedMs(selectionStarted);
+    if(selection_ms>=100) timingLog('parse_selection',{selection_ms,attempt_id:a?.attempt_id,request_id:a?.request_id});
     if(!a) return Promise.resolve();
     this.processingJob=(async()=> {
+      const started=performance.now(),dequeuedAt=this.clock(),durations:Record<string,number>={};
+      let phase='load',phaseStarted=started,failed=false,completed=false;
+      let task:Row|undefined,value:Completion|undefined,parsed:ParseResult|undefined;
+      const next=(name:string)=> {durations[phase+'_ms']=elapsedMs(phaseStarted);phase=name;phaseStarted=performance.now();};
       try {
-        const task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!,value: Completion=JSON.parse(a.completion);
-        let body='',parsed: ParseResult|undefined;
+        task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!;
+        value=JSON.parse(a.completion) as Completion;
+        let body='';
+        next('parse_roundtrip');
         if(!value.error && value.status===200 && ['article','discovery'].includes(task.purpose)) {
           const common={response_ref:value.response_ref!,body_hash:value.body_hash!,bytes:value.bytes,headers:value.headers,url:task.current_url};
           if(task.purpose==='discovery') parsed=await this.parser.parse({...common,kind:'discovery',sourceKind:this.one('SELECT kind FROM sources WHERE url=?',task.url)!.kind});
@@ -430,6 +453,7 @@ export class Scheduler {
             parsed=await this.parser.parse({...common,kind:'article',discovered:item.discovered,hint:item.published_hint});
           }
         } else if(!value.error) body=this.readBody(value);
+        next('mapping');
         if(parsed?.kind==='discovery') {
           const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
           const started=this.one('SELECT started FROM sites WHERE domain=?',task.domain)!.started;
@@ -441,8 +465,17 @@ export class Scheduler {
           parsed={...parsed,found:{...parsed.found,articles:[]},mappingKey};
         }
         // Parsing and decompression above happen without holding a write lock.
+        next('persist');
         this.finishProcessing(a,task,value,body,parsed);
-      } catch(error) {if(!this.closing)this.processingFailure(a,error);}
+        completed=true;
+      } catch(error) {failed=true;if(!this.closing)this.processingFailure(a,error);}
+      finally {
+        durations[phase+'_ms']=elapsedMs(phaseStarted);
+        timingLog('processing',{attempt_id:a.attempt_id,request_id:a.request_id,domain:a.domain,purpose:task?.purpose,
+          failed,completed,failed_phase:failed?phase:null,queue_wait_ms:value?dequeuedAt-Date.parse(value.finished_at):null,
+          selection_ms,...durations,total_ms:elapsedMs(started),extraction_cache_hit:parsed?.cache?.hit,
+          ...parsed?.timings});
+      }
     })().finally(()=> {this.processingJob=undefined;if(!this.closing) setImmediate(()=>void this.processAsync().catch(error=>console.error('archive processing failed',error)));});
     return this.processingJob;
   }

@@ -1,6 +1,7 @@
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
-import type { ParseInput, ParseResult } from '../../../../packages/core/src/extraction-cache.js';
-export type { ParseInput, ParseResult } from '../../../../packages/core/src/extraction-cache.js';
+import type { ParseInput, ParseResult as CachedParseResult } from '../../../../packages/core/src/extraction-cache.js';
+export type { ParseInput } from '../../../../packages/core/src/extraction-cache.js';
+export type ParseResult = CachedParseResult & {timings?:{worker_ms:number;extraction_ms:number;cache_archive_ms:number}};
 
 type Pending = { id: number; timer: ReturnType<typeof setTimeout>; resolve(value: ParseResult): void; reject(error: Error): void };
 
@@ -81,8 +82,10 @@ if (!isMainThread) {
   parentPort!.on('message', ({ id, directory, input }: { id: number; directory: string; input: ParseInput }) => {
     try {
       extractor ??= new CachedExtractor(directory);
+      const started=performance.now(),before=extractor.metrics.parseMs;
       const result=extractor.parse(input);
-      parentPort!.postMessage({id,result,metrics:extractor.metrics});
+      const worker_ms=performance.now()-started,extraction_ms=extractor.metrics.parseMs-before;
+      parentPort!.postMessage({id,result:{...result,timings:{worker_ms,extraction_ms,cache_archive_ms:Math.max(0,worker_ms-extraction_ms)}},metrics:extractor.metrics});
     } catch(error) {
       const value=error instanceof Error?error:new Error(String(error));
       parentPort!.postMessage({id,error:{name:value.name,message:value.message}});
