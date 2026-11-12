@@ -1,9 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { CoverageReader } from '../../../../packages/reconciliation/src/view.js';
+import { CrawlerOnlyReader } from '../../../../packages/reconciliation/src/crawler-only.js';
 import { Observatory } from '../metrics/observability.js';
 import { Charts } from '../metrics/charts.js';
 
 const coverage=new CoverageReader(workerData.monitorPath,workerData.directory+'/crawler.sqlite');
+const crawlerOnly=new CrawlerOnlyReader(workerData.monitorPath,workerData.directory+'/crawler.sqlite');
 const observation=new Observatory(workerData.directory);
 const charts=new Charts(workerData.directory);
 parentPort!.on('message',async ({id,method,args})=> {
@@ -11,6 +13,7 @@ parentPort!.on('message',async ({id,method,args})=> {
   try {
     let value;
     if(method==='coverage') value=coverage.dataset(args.window,args.site,args.provider,startedAt,args.freshness);
+    else if(method==='crawlerOnly') value=crawlerOnly.dataset(args.window,args.site,args.provider,startedAt);
     else if(method==='overview') value=observation.overview();
     else if(method==='charts') value=charts.parsingQuality(new URLSearchParams(args.query));
     else if(method==='detail') value=await observation.requestDetail(args.id);

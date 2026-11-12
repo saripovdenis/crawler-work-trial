@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowUpRight,
   BarChart3,
+  Bot,
   Clock3,
   FileText,
   GitBranch,
@@ -18,6 +19,7 @@ const items = [
   { id: "charts", label: "Charts", href: "/charts", icon: BarChart3 },
   { id: "coverage", label: "Coverage", href: "/reconciliation", icon: ScanSearch },
   { id: "freshness", label: "Freshness", href: "/freshness", icon: Clock3 },
+  { id: "crawler-only", label: "Crawler-only", href: "/crawler-only", icon: Bot },
 ] as const;
 export type View = (typeof items)[number]["id"];
 

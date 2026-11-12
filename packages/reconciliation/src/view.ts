@@ -169,7 +169,8 @@ export function matchSightings(rows: Row[], articles: Row[]): Group[] {
   }
   return [...groups.values()];
 }
-const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 604800000 };
+export const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 604800000 };
+export const ARTICLE_SELECT = `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`;
 export function coverageQuery(params: URLSearchParams) {
   const window = params.get("window") || "1h", site = params.get("site") || "",
     provider = params.get("provider") || "", matches = params.get("matches") || "all",
@@ -256,7 +257,7 @@ export class CoverageReader {
         AND (?='' OR site=?) AND (?='' OR provider=?)`).get(start,now,site,site,provider,provider)!.n);
       const articles = crawler
         .prepare(
-          `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`,
+          ARTICLE_SELECT,
         )
         .all(site, site) as Row[];
       const allGroups = matchSightings(rows.slice(0, 50000), fetchedArticles(crawler,articles,site,now)).filter(group => {

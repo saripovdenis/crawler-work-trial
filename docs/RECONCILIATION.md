@@ -238,3 +238,62 @@ exports remain historical observations.
 Repairs also store `reprocessedAt` in the article payload, exposed as
 `crawler_reprocessed_at` in timing details. This records the repair-run start separately from the original fetch and first parse;
 individual rows are corrected during that run.
+
+## Crawler-only view
+
+`/crawler-only` reverses the Coverage comparison: which parsed article records
+are absent from the stored provider samples? It reads the existing databases;
+viewing or refreshing it makes no provider requests and spends no Exa quota.
+
+`GET /api/crawler-only?window=24h&site=&provider=both&show=all&page=1`
+accepts publication windows `1h`, `24h` (default) and `7d`; a configured site;
+providers `both`, `google` or `exa`; and status filters `all`, `crawler_only`,
+`listed`, `pending`, `possible`, `strong`, `weak` or `not_comparable`.
+
+The population contains parsed records with a valid publication date inside
+`[windowStart, windowEnd)`, including incomplete parses. Undated parsed records
+and downloads without parsed records are excluded because their publication
+window cannot be established. `population.undatedExcluded` and
+`population.unparsedExcluded` report these site-scoped diagnostic counts across
+all available history; they are not added to the window's totals.
+
+Each provider is assessed independently using Coverage's `matchSightings` and
+the same fetched-article inputs. Google wrappers do not become publisher URL
+matches. Google comparison therefore uses the existing exact normalized-title,
+unique-candidate and publication-time rules. A same-title row that fails that
+matcher remains possible evidence, never a confirmed match.
+
+| Status | Rule, in precedence order |
+| --- | --- |
+| Not comparable | No saved successful crawler fetch exists for the parsed record. |
+| Listed | At least one selected provider has a stored matched row. |
+| Provider may still list it | Unlisted and published less than 70 minutes ago. |
+| Possible match | Unmatched, but a selected provider has the same normalized title. |
+| Not comparable | Any selected provider lacks a successful poll covering publication. |
+| Crawler-only, weak | A selected provider's latest successful covering poll was capped. |
+| Crawler-only, strong | Every selected provider's latest successful covering poll was uncapped. |
+
+The 70-minute grace is the shared 60-minute lookback plus 10-minute cadence.
+Covering evidence always uses each run's actual `window_start <= publication <
+window_end`, successful status and completed observation time. Failed polls
+never support a strong or weak claim. Each row exposes both providers' status,
+reason and last successful covering poll, including its cap flag.
+
+Cards and domain counts are exact over the whole population. `listed + possible
++ strong + weak + pending = comparable`; `notComparable` is separate. Listed
+Google-only, Exa-only and both are mutually exclusive for the selected providers.
+Domain poll cap shares use successful polls whose stored windows overlap the
+selected window; failures are reported separately.
+
+Only the newest 2,000 detailed rows are retained per cached dataset. Status
+filtering and pagination then operate on those retained rows, 50 per page.
+`groupCount` is the exact count for the selected status; `rowCount` and
+`pageCount` describe retained rows. Truncation is explicit: narrowing the window
+or site can expose older matching rows. Pagination/filter changes reuse the
+same 60-second dataset cache and its original timestamps, with the dashboard's
+five-minute stale limit.
+
+**Absent from the 10-minute sample is not proof the provider lacks the article.**
+Capped ranking samples, failed polls, indexing delays and ambiguous titles all
+limit the comparison. Even strong means absent from an uncapped stored sample,
+not proven absent from a provider's full index.

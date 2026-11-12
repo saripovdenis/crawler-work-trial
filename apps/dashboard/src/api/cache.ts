@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { LruCache } from '../../../../packages/core/src/lru.js';
 import { coverageQuery, pageCoverage } from '../../../../packages/reconciliation/src/view.js';
+import { crawlerOnlyQuery, pageCrawlerOnly } from '../../../../packages/reconciliation/src/crawler-only.js';
 
 type Job={id:number;method:string;args:any;resolve(value:any):void;reject(error:Error):void;timer?:ReturnType<typeof setTimeout>};
 type Snapshot={value:any;finishedAt:number;startedAt:number};
@@ -87,6 +88,11 @@ export class DashboardCache {
     const q=coverageQuery(params),args={window:q.window,site:q.site,provider:q.provider,freshness};
     const snapshot=await this.cached('coverage:'+JSON.stringify(args),'coverage',args,60_000,300_000);
     return pageCoverage(snapshot,q.matches,q.page);
+  }
+  async crawlerOnly(params:URLSearchParams) {
+    const q=crawlerOnlyQuery(params),args={window:q.window,site:q.site,provider:q.provider};
+    const snapshot=await this.cached('crawler-only:'+JSON.stringify(args),'crawlerOnly',args,60_000,300_000);
+    return pageCrawlerOnly(snapshot,q.show,q.page);
   }
   async get(method:string,params=new URLSearchParams(),id?:number) {
     const query=new URLSearchParams(params);query.sort();
