@@ -24,16 +24,16 @@ The response archive currently uses local reads plus an asynchronous Garage mirr
 See [storage rollout, validation and rollback](docs/ARCHIVE-STORAGE.md).
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
-Site limits, enabled flags, discovery sources and optional overrides live in `config/sites.ts`, behind the
+Site limits, seeds and optional overrides live in `config/sites.ts`, behind the
 validated `policy.for()`, `policy.all()` and `policy.active()` accessors.
 `config/profiles.ts` defines JSON-compatible fetch profiles and article adapters.
 Omitted `fetchProfile` uses crawler headers; omitted `articleAdapter` uses generic
 extraction. All publisher HTTP uses Python curl_cffi. Discovery independently uses
 generic HTML/feed/sitemap readers or an explicit API adapter such as `sina-roll`.
-Set `enabled: false` to pause a domain; deploy/restart all services to apply it.
-See [site policies, pause behavior and shared budget rules](docs/SITE-POLICY.md).
+Every configured site is active; there is no per-site enable/disable setting.
+See [site policies and shared budget rules](docs/SITE-POLICY.md).
 
-Add ordered `discoverySources` to a site in `config/sites.ts` to choose its starting
+Add ordered `seeds` to a site in `config/sites.ts` to choose its starting
 pages, feeds, sitemaps or APIs. New sources get their first attempt in that order,
 after required robots checks; later polls use the existing scheduler and budget.
 See [discovery source configuration](docs/SITE-POLICY.md#discovery-sources).

@@ -20,7 +20,7 @@ export const fetchProfiles: Readonly<Record<string, FetchProfile>> = {
 
 // Generic extraction always reads JSON-LD/OpenGraph and uses Readability as needed.
 // Optional article adapters retain the selectors and scopes verified in saved HTML.
-// Discovery adapters are separate: see each discoverySources entry and discovery-api.ts.
+// Discovery adapters are separate: see each seeds entry and discovery-api.ts.
 export const articleAdapters: Readonly<Record<string, ArticleAdapter>> = {
   sina: {
     strategy: 'generic',

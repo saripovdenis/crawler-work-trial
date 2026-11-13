@@ -1,32 +1,32 @@
 # Site policies
 
-`config/sites.ts` holds one typed `SitePolicy` per configured domain:
+`config/sites.ts` holds one typed `SiteConfig` per configured domain:
 
 ```ts
 {
-  domain: 'hoodline.com', enabled: true, requestsPerMinute: 5,
+  domain: 'hoodline.com', requestsPerMinute: 5,
   fetchProfile: 'chrome',
-  discoverySources: [{ kind: 'feed', url: 'https://hoodline.com/rss' }],
+  seeds: [{ kind: 'feed', url: 'https://hoodline.com/rss' }],
 }
 ```
 
 Only `config/site-policy.ts` imports those defaults. Other modules use:
 
 - `policy.for(domain)`: exact configured domain, or `undefined`.
-- `policy.active()`: enabled domains, in file order (the existing claim tie-break).
-- `policy.all()`: configured domains including paused ones, for history and parsing.
+- `policy.active()`: configured domains, in file order (the existing claim tie-break).
+- `policy.all()`: configured domains, for history and parsing.
 
-All 20 limits are unchanged. All domains are enabled by default. Subdomains share
+All 20 limits are unchanged. All configured domains are active. Subdomains share
 their configured parent domain's budget and fetch profile. Every publisher HTTP
 request goes through the Python curl_cffi worker, which also owns claims, archives,
 durable receipts and mirror uploads. The existing service is replaced, not split.
-`domainFor(url)` recognizes paused domains too; recognizing a URL never authorizes
-a request. The scheduler and worker separately check `enabled` before dispatch.
+The policy layer supplies `enabled: true` internally to preserve the scheduler/worker
+contract. This field is not part of site configuration. Unknown domains remain blocked.
 
 ## Validation
 
 Importing the policy validates unique lowercase DNS names, no parent/child domain
-overlaps, boolean enabled flags, known profile names, and integer limits from 1
+overlaps, known profile names, and integer limits from 1
 through the global ceiling of 60 requests/minute. The scheduler imports it before
 opening the database. Invalid policies fail startup.
 
@@ -78,17 +78,17 @@ selectors or host scopes. It is not a throughput or coverage optimization. Parse
 cache keys include the config and source files, so this release invalidates old
 extraction caches; it does not refetch articles just to warm them.
 
-## Discovery sources
+## Seeds
 
-`discoverySources` is an optional ordered list on each site. Supported kinds are
+`seeds` is an optional ordered list on each site. Supported kinds are
 `html`, `feed` (RSS/Atom), `sitemap` (including indexes), and `api` with a named
 adapter. For example:
 
 ```ts
 {
-  domain: 'sina.com.cn', enabled: true, requestsPerMinute: 30,
+  domain: 'sina.com.cn', requestsPerMinute: 30,
   articleAdapter: 'sina',
-  discoverySources: [
+  seeds: [
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1' },
     { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml' },
   ],
@@ -154,26 +154,6 @@ are in `config/sites.ts`.
 Publisher references: [ANTARA RSS](https://www.antaranews.com/rss/),
 [ET RSS directory](https://economictimes.indiatimes.com/rss.cms),
 [Zaobao realtime](https://www.zaobao.com.sg/realtime).
-
-## Pausing
-
-Set a domain's `enabled` to `false`, commit and deploy normally. Policies are
-immutable for each process; this is a code switch, not a hot-reload or dashboard
-write endpoint. Restart all services together so they use the same policy.
-
-A pause prevents new crawler reservations and monitor provider polls for that
-domain, including redirected requests into it. The worker refuses an old saved
-assignment before sending. Existing charges remain charged; requests already sent
-may finish. Completed archives can still be parsed.
-
-Queued links and history remain. Stale-link cleanup excludes paused domains, and
-expired/failed leases return their tasks to ready without increasing candidate
-attempts while paused. On resuming, normal scheduling and age-based cleanup apply.
-Unknown domains retained in the database are skipped; their pending archives wait
-until a policy is restored. Prefer pausing to deleting a domain and its profiles.
-
-The dashboard lists paused domains, shows a Paused badge, zero active allowance and
-no eligibility timestamp. Historical request and article counts remain visible.
 
 ## Shared budget calculation
 
