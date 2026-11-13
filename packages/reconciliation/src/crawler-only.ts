@@ -17,6 +17,7 @@ const providerNames = { google: 'Google News', exa: 'Exa' };
 
 export type StatusCounts = {
   total: number; comparable: number; listed: number; googleOnly: number; exaOnly: number; both: number;
+  compared: number; percentage: number | null;
   possible: number; strong: number; weak: number; pending: number; notComparable: number; crawlerOnly: number;
 };
 type Poll = { id: number; startedAt: number; windowStart: number; windowEnd: number; truncated: boolean };
@@ -41,7 +42,7 @@ export type CrawlerOnlySnapshot = {
 
 export function crawlerOnlyQuery(params: URLSearchParams) {
   const window = params.get('window') || '24h', site = params.get('site') || '',
-    provider = params.get('provider') || 'both', show = params.get('show') || 'all',
+    provider = params.get('provider') || 'google', show = params.get('show') || 'all',
     page = Number(params.get('page') || 1);
   if (!['1h','24h','7d'].includes(window) || (site && !sites.some(s => s.domain === site))
     || !['both',...providerIds].includes(provider) || !statuses.includes(show as CrawlerOnlyShow)
@@ -52,13 +53,17 @@ export function crawlerOnlyQuery(params: URLSearchParams) {
 }
 
 const emptyCounts = (): StatusCounts => ({ total: 0, comparable: 0, listed: 0, googleOnly: 0, exaOnly: 0,
-  both: 0, possible: 0, strong: 0, weak: 0, pending: 0, notComparable: 0, crawlerOnly: 0 });
-function countArticle(counts: StatusCounts, article: CrawlerOnlyArticle, selected: readonly ProviderId[]) {
+  both: 0, compared: 0, percentage: null, possible: 0, strong: 0, weak: 0, pending: 0, notComparable: 0, crawlerOnly: 0 });
+function countArticle(counts: StatusCounts, article: CrawlerOnlyArticle, selected: readonly ProviderId[], now: number) {
   counts.total++;
   if (article.status === 'not_comparable') { counts.notComparable++; return; }
   counts.comparable++;
   counts[article.status]++;
   if (article.status === 'strong' || article.status === 'weak') counts.crawlerOnly++;
+  if (now - article.publishedAt >= gracePeriod && ['listed','strong','weak'].includes(article.status)) {
+    counts.compared++;
+    counts.percentage = counts.crawlerOnly / counts.compared * 100;
+  }
   if (article.status === 'listed') {
     const google = selected.includes('google') && article.google.status === 'listed';
     const exa = selected.includes('exa') && article.exa.status === 'listed';
@@ -110,12 +115,12 @@ export class CrawlerOnlyReader {
       // Use the same complete fetched input as Coverage: filtering to this page's
       // population would remove ambiguous title candidates and change matches.
       const sightings = monitor?.prepare(`SELECT * FROM external_sightings
-        WHERE provider IN ('google','exa') AND observed_at<=? AND (?='' OR site=?)
-        ORDER BY provider_published_at DESC NULLS LAST,id`).all(now,site,site) as Row[] | undefined;
+        WHERE provider IN ('google','exa') AND (?='both' OR provider=?) AND observed_at<=? AND (?='' OR site=?)
+        ORDER BY provider_published_at DESC NULLS LAST,id`).all(provider,provider,now,site,site) as Row[] | undefined;
       const listed: Record<ProviderId,Map<string,'url'|'title'>> = {google:new Map(),exa:new Map()};
       // A provider cell must not inherit the other provider's evidence from a
       // grouped title association. Each uses Coverage's matcher independently.
-      for (const id of providerIds) for (const group of matchSightings((sightings || []).filter(row => row.provider === id),fetched)) {
+      for (const id of selected) for (const group of matchSightings((sightings || []).filter(row => row.provider === id),fetched)) {
         if (!group.match || !group.article_url) continue;
         const identity = key(group.site,group.article_url);
         if (!identity) continue;
@@ -140,6 +145,7 @@ export class CrawlerOnlyReader {
         const list = pollGroups.get(identity) || []; list.push(run); pollGroups.set(identity,list);
       }
       const evidence = (article: Row, publication: number, download: Row | undefined, id: ProviderId): ProviderEvidence => {
+        if (!selected.includes(id)) return {status:'not_comparable',reason:'Provider not selected.',match:null,poll:null};
         const polls = pollGroups.get(article.domain + '|' + id) || [];
         const last = polls.find(run => run.status === 'ok' && run.window_start <= publication && publication < run.window_end);
         const poll: Poll | null = last ? {id:Number(last.id),startedAt:Number(last.started_at),windowStart:Number(last.window_start),
@@ -186,8 +192,8 @@ export class CrawlerOnlyReader {
           requestId:download?.request_id ?? null,status:overall(selected.map(id => id === 'google' ? google : exa),!!download),
           incomplete:article.classification === 'incomplete',google,exa};
         if(rows.length<rowLimit)rows.push(row);
-        countArticle(summary,row,selected);
-        const domain = byDomain.get(row.site);if (domain) countArticle(domain,row,selected);
+        countArticle(summary,row,selected,now);
+        const domain = byDomain.get(row.site);if (domain) countArticle(domain,row,selected,now);
       }
       return {window,windowStart:start,windowEnd:now,windowTimestamp:'article_published_at',generatedAt:now,
         sites:sites.map(value => value.domain),provider,selectedProviders:selected,summary,domains,

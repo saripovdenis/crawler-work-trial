@@ -242,9 +242,18 @@ individual rows are corrected during that run.
 are absent from the stored provider samples? It reads the existing databases;
 viewing or refreshing it makes no provider requests and spends no Exa quota.
 
-`GET /api/crawler-only?window=24h&site=&provider=both&show=all&page=1`
+The page shows one percentage and a domain breakdown against Google News.
+The percentage is `crawlerOnly / compared * 100`, where `compared` includes
+articles at least 70 minutes old that are either confirmed listed or absent
+from a successful covering sample. Pending, uncertain and non-comparable
+records are excluded; an empty denominator returns `null`, displayed as “—”.
+Both capped and uncapped samples count, so this is sampled absence, not proof
+of exclusivity. The page offers 24 hours and 7 days: a one-hour publication
+window contains no articles past the 70-minute grace period.
+
+`GET /api/crawler-only?window=24h&site=&provider=google&show=all&page=1`
 accepts publication windows `1h`, `24h` (default) and `7d`; a configured site;
-providers `both`, `google` or `exa`; and status filters `all`, `crawler_only`,
+providers `both`, `google` (default) or `exa`; and status filters `all`, `crawler_only`,
 `listed`, `pending`, `possible`, `strong`, `weak` or `not_comparable`.
 
 The population contains parsed records with a valid publication date inside
@@ -273,10 +282,11 @@ matcher remains possible evidence, never a confirmed match.
 The 70-minute grace is the shared 60-minute lookback plus 10-minute cadence.
 Covering evidence always uses each run's actual `window_start <= publication <
 window_end`, successful status and completed observation time. Failed polls
-never support a strong or weak claim. Each row exposes both providers' status,
-reason and last successful covering poll, including its cap flag.
+never support a strong or weak claim. Each row exposes the selected providers' status, reason and last successful
+covering poll, including its cap flag. Unselected providers are marked as such;
+the reader only matches sightings from selected providers.
 
-Cards and domain counts are exact over the whole population. `listed + possible
+API status and domain counts are exact over the whole population. `listed + possible
 + strong + weak + pending = comparable`; `notComparable` is separate. Listed
 Google-only, Exa-only and both are mutually exclusive for the selected providers.
 Domain poll cap shares use successful polls whose stored windows overlap the
