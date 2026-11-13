@@ -4,17 +4,18 @@ import type { SiteConfig } from '../packages/core/src/types.js';
 // Defaults: Python curl_cffi with crawler headers, then generic article extraction.
 // Only exceptions select a fetchProfile or articleAdapter from profiles.ts.
 // Sources are starting points, not a complete census; normal discovery continues.
+// List seeds as RSS, sitemap, API, HTML for readability; runtime rotation uses stored task IDs.
 export const siteDefaults: readonly SiteConfig[] = [
   { domain: 'sina.com.cn', requestsPerMinute: 30, articleAdapter: 'sina', seeds: [
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1', pollEveryMs: 30_000 },
-    { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml', pollEveryMs: 120_000 },
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=506&lid=3328&num=50&page=1', pollEveryMs: 30_000 },
+    { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://finance.sina.com.cn/', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://news.sina.com.cn/', pollEveryMs: 120_000 },
   ] },
   { domain: 'indiatimes.com', requestsPerMinute: 15, seeds: [
-    { kind: 'sitemap', url: 'https://timesofindia.indiatimes.com/staticsitemap/toi/news/sitemap-today-1.xml', pollEveryMs: 120_000 },
     { kind: 'rss', url: 'https://economictimes.indiatimes.com/news/latest-news/rssfeeds/20989204.cms', pollEveryMs: 60_000 },
+    { kind: 'sitemap', url: 'https://timesofindia.indiatimes.com/staticsitemap/toi/news/sitemap-today-1.xml', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://timesofindia.indiatimes.com/', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://economictimes.indiatimes.com/', pollEveryMs: 120_000 },
   ] },
@@ -73,8 +74,8 @@ export const siteDefaults: readonly SiteConfig[] = [
   ] },
   { domain: 'mediapart.fr', requestsPerMinute: 2, seeds: [
     { kind: 'rss', url: 'https://www.mediapart.fr/articles/feed', pollEveryMs: 300_000 },
-    { kind: 'html', url: 'https://www.mediapart.fr/', pollEveryMs: 180_000 },
     { kind: 'sitemap', url: 'https://www.mediapart.fr/news_sitemap_editor_choice.xml', pollEveryMs: 300_000 },
+    { kind: 'html', url: 'https://www.mediapart.fr/', pollEveryMs: 180_000 },
   ] },
   { domain: 'eleconomista.es', requestsPerMinute: 2, fetchProfile: 'chrome', seeds: [
     { kind: 'sitemap', url: 'https://www.eleconomista.es/sitemap_news_ssl.php', pollEveryMs: 300_000 },
