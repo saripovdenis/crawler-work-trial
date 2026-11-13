@@ -31,11 +31,14 @@ decode, serialization, cache compression/writes/pruning). `parse_roundtrip_ms`
 also includes worker startup, message transfer and time waiting to resume the
 scheduler. Nested times overlap: do not add them all together.
 
-For Node transport, `response_wait_ms` combines connection setup and waiting for
-response headers. DNS/TCP/TLS are **not** individually measured. For `chrome136`,
-the Python helper returns a buffered response: that field includes Python startup,
-the full HTTP request/body and IPC. `body_read_ms` then drains the already-buffered
-body. Check `response_wait_scope` before comparing transports.
+Historical Node transport records combine connection setup and waiting for
+response headers in `response_wait_ms`. DNS/TCP/TLS are **not** individually measured.
+The former Python subprocess reported `python_startup_and_full_response`.
+The complete Python worker now reports `python_full_response`: curl_cffi runs
+in process, so this field covers the HTTP request/body without startup or IPC.
+Historical `body_read_ms` drained the already-buffered body; the Python worker
+records body completion immediately when curl_cffi returns. Check
+`response_wait_scope` before comparing transports.
 
 All durations use a monotonic clock except `queue_wait_ms` and
 `dispatch_wait_ms`, which compare persisted UTC timestamps on the same VM.

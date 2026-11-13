@@ -13,7 +13,7 @@
     "dashboard:build": "npm --prefix apps/dashboard run build",
     "check:boundaries": "node tools/simulator/check-boundaries.mjs",
     "scheduler": "tsx services/crawler/src/scheduler/index.ts",
-    "worker": "tsx services/crawler/src/fetcher/index.ts",
+    "worker": "exec \"${CRAWLER_PYTHON:-python3}\" services/fetcher-impersonate/worker.py",
     "monitor": "node --env-file-if-exists=.env.monitor --import tsx services/monitor/src/index.ts"
   },
   "devDependencies": {

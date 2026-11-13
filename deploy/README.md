@@ -25,10 +25,15 @@ cutover. A second release fails rather than racing. Legacy deployments already
 running also prevent a cutover. Do not bypass these guards.
 
 Preparation runs dependency installation, type checks, the static outbound/import
-boundary check, frontend build, and a Python transport import. It does not run
+boundary check, frontend build, and the Python worker import check. It does not run
 automated tests or send validation requests to publishers. The PostgreSQL
 `crawl_budget` schema is dumped into the release directory. Existing service users, settings, ports,
 secrets, disk paths and public URLs are preserved.
+
+The renderer sets `exa-fetch-worker` to the release virtualenv Python and
+`services/fetcher-impersonate/worker.py`. Because the canonical deploy script changed,
+its root-owned installed copy must first be updated from the merged master version;
+its existing self-comparison guard enforces this.
 
 The worker stops first; then the other three services stop. Their units switch
 together. Scheduler/API/reconciler start, then the worker starts after scheduler

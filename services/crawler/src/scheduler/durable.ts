@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { policy, configuredSourceIndex } from '../../../../config/site-policy.js';
+import { policy, configuredSourceIndex, fetchProfileFor } from '../../../../config/site-policy.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
@@ -247,7 +247,7 @@ export class Scheduler {
           if(s.modified) headers['If-Modified-Since']=s.modified;
         }
         const value: Assignment = { task_id:String(task.id),attempt_id:randomUUID(),lease_token:randomUUID(),domain,url:task.current_url,
-          purpose:task.purpose,transport:target.transport,headers,timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,
+          purpose:task.purpose,transport:'curl_cffi',fetch_profile:fetchProfileFor(target),headers,timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,
           start_by:new Date(now+DISPATCH_MS).toISOString(),lease_until:new Date(now+LEASE_MS).toISOString() };
         this.run(`INSERT INTO attempt_assignments(attempt_id,request_id,task_id,domain,worker_id,claim_id,lease_token,start_by,lease_until,assignment)
           VALUES (?,?,?,?,?,?,?,?,?,?)`,value.attempt_id,slot.id,task.id,domain,worker,claim,value.lease_token,now+DISPATCH_MS,now+LEASE_MS,JSON.stringify(value));

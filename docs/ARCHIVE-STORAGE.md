@@ -23,7 +23,7 @@ S3 adapter is a later rollout step, not enabled by this release.
 
 With `ARCHIVE_MIRROR=1`, the fetch worker durably queues a body hash under
 `receipts/archive-mirror/pending/` before acknowledging completion. A separate
-worker thread uploads existing compressed bytes. Successful upload markers go
+Python thread uploads existing compressed bytes. Successful upload markers go
 to `uploaded/`; pending markers survive restarts. Replayed queue entries use
 the same content key. Backoff is capped at 60 seconds; individual uploads time
 out after five seconds. Uploads never delay the callback or use publisher budget.
@@ -50,7 +50,9 @@ deployment invokes it before stopping any crawler process.
   our adapter only exposes PUT and GET, with no delete operation.
 - The only allowed S3 SDK module is `packages/protocol/src/storage-client.ts`.
   It rejects non-loopback endpoints, URL credentials and paths. No arbitrary
-  request URLs, redirects or publisher hosts are accepted.
+  request URLs, redirects or publisher hosts are accepted. The Python fetch worker
+  uses `services/fetcher-impersonate/clients.py` for the same loopback-only PUTs,
+  signed by libcurl with AWS Signature V4 and an explicit payload SHA-256.
 
 The adapter uses the S3 protocol, but moving to GCS also requires endpoint,
 authentication and compatibility validation; it is not promised as a config-only

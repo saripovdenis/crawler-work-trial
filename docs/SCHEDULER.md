@@ -6,12 +6,13 @@
 
 
 The former `exa-crawler` unit now runs the Node scheduler and archived-response pipeline.
-`exa-fetch-worker` is a second Node process with four concurrent slots. It never opens
-SQLite. Python remains a one-request Chrome 136 subprocess. The dashboard/Caddy are unchanged.
+`exa-fetch-worker` runs Python with four concurrent fetch threads and an optional
+archive mirror thread. It never opens a database. curl_cffi runs in process, with
+no per-request Python startup. The dashboard/Caddy are unchanged.
 
 ## Ownership and storage
 
-- Scheduler: SQLite writes, selection, robots cache, budgets, redirects, retries, mapping and classification.
+- Scheduler: PostgreSQL writes, selection, robots cache, budgets, redirects, retries, mapping and classification.
 - Worker: HTTP execution, atomic gzip archives and completion receipts. It has no limiter or SQL imports.
 - Shared protocol: `packages/protocol/src/index.ts`; language-independent HTTP below.
 - Existing data path: `/var/lib/exa-crawler/data`; no data was moved.
@@ -69,6 +70,11 @@ UTC ISO-8601 timestamps; opaque string IDs. Maximum request body 64 KiB. Health 
 `GET /internal/health`. `POST` failures use `{ "error": "..." }` with 400 for invalid
 input, 403 for wrong token, 404 for unknown attempt, 409 for conflict/expired lease.
 
+`GET /internal/worker-config` returns version 1, enabled domain policies, legacy
+fetch profiles and request/deadline limits from the same TypeScript configuration.
+Python refuses work until it loads this configuration. All four services restart
+together when policies change.
+
 `POST /internal/claims`:
 
 ```json
@@ -76,10 +82,13 @@ input, 403 for wrong token, 404 for unknown attempt, 409 for conflict/expired le
 ```
 
 ```json
-{"task":{"task_id":"123","attempt_id":"opaque-uuid","lease_token":"opaque-uuid","domain":"bbc.com","url":"https://www.bbc.com/","purpose":"discovery","transport":"node","headers":{},"timeout_ms":20000,"max_response_bytes":5242880,"start_by":"2026-11-12T08:00:02.000Z","lease_until":"2026-11-12T08:01:00.000Z"}}
+{"task":{"task_id":"123","attempt_id":"opaque-uuid","lease_token":"opaque-uuid","domain":"bbc.com","url":"https://www.bbc.com/","purpose":"discovery","transport":"curl_cffi","fetch_profile":{"impersonate":"chrome136","defaultHeaders":false,"headers":{"User-Agent":"ExaTrialCrawler/0.1","Accept":"text/html,application/xml,application/rss+xml,*/*;q=0.5"}},"headers":{},"timeout_ms":20000,"max_response_bytes":5242880,"start_by":"2026-11-12T08:00:02.000Z","lease_until":"2026-11-12T08:01:00.000Z"}}
 ```
 
-`transport` is `node` or `chrome136`; purpose is `robots`, `discovery`, or `article`.
+New assignments use `transport: curl_cffi` and a JSON `fetch_profile` snapshot.
+The worker still reads legacy `node`/`chrome136` receipts but sends all new requests
+through Python, retaining the selected header style. Purpose is `robots`,
+`discovery`, `article`, or `audit`.
 No work: `{ "task": null, "retry_after_ms": 1000 }`. After receiving no work, generate
 a new claim ID. If the response is lost, retry the same ID. Assigned IDs are permanently
 idempotent: they return the original assignment even after completion/expiry. A worker
@@ -106,9 +115,9 @@ Claims reserve the existing ledger, create the assignment and lease the task in 
 cooldown calculations are reused. Worker timestamps are measurements; `requests.finished`
 is scheduler-observed. Expired attempts receive the observed expiry time and remain charged.
 
-Dispatch must begin within five seconds; Node/Python enforce the deadline immediately
-before network dispatch. Requests time out after 20 seconds (Python subprocess also has
-its existing 25-second cap); leases last 60 seconds. There is no lease renewal. Safe expiry
+Dispatch must begin within five seconds; Python checks the deadline immediately
+before network dispatch. libcurl limits the complete request to 20 seconds; leases
+last 60 seconds. There is no per-request subprocess or separate subprocess timer. There is no lease renewal. Safe expiry
 plus conservative completion spacing precedes another assignment for that domain.
 
 Worker slots fsync their claim ID before claiming and dispatch intent before fetching.
@@ -124,19 +133,21 @@ advances until mapping succeeds. Existing parse/classify functions and dashboard
 are reused. Article `fetched` still means parse completion. SQLite remains authoritative;
 JSONL exports retain their previous best-effort guarantee.
 
-## Run and test
+## Run and validate
 
 From repository root, in separate terminals:
 
 ```sh
 CRAWLER_DATA_DIR=/path/to/data npm run scheduler
-CRAWLER_DATA_DIR=/path/to/data npm run worker
+CRAWLER_DATA_DIR=/path/to/data CRAWLER_PYTHON="$PWD/.venv/bin/python" npm run worker
 ```
 
 `npm run dev` starts the scheduler only; stop the worker separately. Existing data/Python variables remain. New optional settings:
 `SCHEDULER_PORT` (4319), `SCHEDULER_URL` (loopback HTTP only), `FETCH_CONCURRENCY` (4, max 20).
 The scheduler takes the `crawler.pid` lock. Worker lock/receipts
-live under `data/receipts`. The worker systemd sandbox makes SQLite inaccessible and only
+live under `data/receipts`. `npm run worker` execs Python; the systemd unit starts
+Python directly. SIGTERM stops new claims and lets bounded in-flight work finish.
+The worker systemd sandbox makes SQLite inaccessible and only
 allows writes to snapshots/receipts. Scheduler networking is restricted to loopback.
 
 ```sh
