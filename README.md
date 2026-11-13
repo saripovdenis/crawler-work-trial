@@ -36,6 +36,10 @@ See [site policies and shared budget rules](docs/SITE-POLICY.md).
 Add ordered `seeds` to a site in `config/sites.ts` to choose its starting
 pages, feeds, sitemaps or APIs. New sources get their first attempt in that order,
 after required robots checks; later polls use the existing scheduler and budget.
+Additional seeds cover Antara English (latest news plus its hourly RSS directory),
+Health Chosun (Korean and English news maps), Bigpara (breaking news and broker
+views), CE English/finance, and UDN Money. These share their parent site's existing
+budget; the RSS directory is parsed as HTML.
 See [discovery source configuration](docs/SITE-POLICY.md#discovery-sources).
 
 ## Repository layout
@@ -118,7 +122,9 @@ and its WAL together when copying a live run, or stop the crawler before copying
 Each site gets a worker. The homepage and robots.txt seed discovery; robots-declared
 sitemaps, nested sitemap indexes, and linked RSS/Atom feeds add sources. Up to 18
 sources per site and three nesting levels constrain exploration (robots seeds may
-add more). Homepage links are heuristic candidates, not automatically articles.
+add more). Youm7's current and previous UTC day's sitemap also bypass this cap
+and receive seed priority on a six-minute cadence; the stable index polls every
+15 minutes so the next day's map is admitted without a deployment. Homepage links are heuristic candidates, not automatically articles.
 HTML feed directories are also explored for links to actual feeds.
 
 Workers alternate discovery with up to two article fetches. Fresh publication hints

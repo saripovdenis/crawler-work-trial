@@ -44,3 +44,10 @@ export function urlRecencyPriority(url: string, now: number): number {
   const today = Math.floor(now / 86400_000) * 86400_000;
   return day >= today - 86400_000 && day <= today + 86400_000 ? 75 : 50;
 }
+
+// This publisher rotates daily children under a stable index. At most today and
+// yesterday qualify, so its feed directory cannot crowd out the live maps.
+export function isCurrentYoum7Sitemap(url: string, now = Date.now()): boolean {
+  return /^https:\/\/www\.youm7\.com\/Sitemap\/20\d{2}\/\d{1,2}\/\d{1,2}$/.test(url)
+    && sourcePriority(url, 'sitemap', now) >= 0;
+}

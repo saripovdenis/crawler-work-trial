@@ -9,7 +9,7 @@ import { migrateDurable } from '../../../../packages/db/src/migrations/durable.j
 import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, fetchFinishedAt, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
 import { reserveSlot, slotDue, completeSlot } from './budget.js';
 import { ArchiveParser, type ParseResult } from './parse-worker.js';
-import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
+import { sourcePriority, urlRecencyPriority, isCurrentYoum7Sitemap } from '../../../../config/discovery.js';
 import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
 import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js';
 import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
@@ -111,6 +111,7 @@ export class Scheduler {
   sourceInterval(source: Row, base: number) {
     const seed = configuredSource(source.url);
     if(seed) return seed.pollEveryMs ?? base;
+    if(isCurrentYoum7Sitemap(source.url,this.clock())) return 360_000;
     if(sourcePriority(source.url,source.kind)<0) return Math.max(base,6*3600_000);
     const q=this.sourceQuality.get(source.url);
     // Keep productive discovered sources fast; give the rest a 20-minute floor.
@@ -218,10 +219,16 @@ export class Scheduler {
         const seeds = site.seeds ?? [];
         const dueSeeds = seeds.length ? this.all(`${dueSources} AND t.url IN (${seeds.map(()=>'?').join(',')})`,
           site.domain,now,now,...seeds.map(seed=>seed.url)) : [];
+        if(site.domain==='youm7.com') {
+          const daily=this.all(`${dueSources} AND t.url LIKE ?`,site.domain,now,now,'https://www.youm7.com/Sitemap/%')
+            .filter(task=>isCurrentYoum7Sitemap(task.url,now));
+          dueSeeds.push(...daily.filter(task=>!dueSeeds.some(seed=>seed.id===task.id)));
+        }
         // Compare missed intervals, not raw lateness, so short-period seeds win
         // fairly. Only the small configured set is read and sorted here.
         const overdue = (task: Row) => {
-          const configured = configuredSource(task.url)!;
+          const configured = configuredSource(task.url);
+          if(!configured) return (now-task.next_crawl_at)/360_000;
           const interval = configured.pollEveryMs
             ?? Math.max(30_000,Math.ceil(180_000/site.requestsPerMinute))*(configured.kind==='sitemap'?2:1);
           return (now-task.next_crawl_at)/interval;
@@ -687,7 +694,10 @@ export class Scheduler {
         partial=found.partial;
         for(const child of found.sources) {
           if(domainFor(child.url)!==site.domain||source.depth>=3 || sourcePriority(child.url,child.kind)<0) continue;
-          if(this.all('SELECT url,kind FROM sources WHERE domain=?',site.domain).filter(s=>sourcePriority(s.url,s.kind)>=0).length<18)
+          const rotatingDaily=task.url==='https://www.youm7.com/sitemap/SitemapNews'
+            && child.kind==='sitemap' && isCurrentYoum7Sitemap(child.url,now);
+          if(rotatingDaily || this.one('SELECT 1 FROM sources WHERE url=?',child.url)
+            || this.all('SELECT url,kind FROM sources WHERE domain=?',site.domain).filter(s=>sourcePriority(s.url,s.kind)>=0).length<18)
             { this.run('INSERT OR IGNORE INTO sources(url,domain,kind,depth) VALUES (?,?,?,?)',child.url,site.domain,child.kind,source.depth+1); this.ensureTask(child.url,'discovery'); }
         }
         for(const item of found.articles) count+=this.mapCandidate(item,source,site.domain,started,observed,now);

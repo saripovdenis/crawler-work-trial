@@ -27,10 +27,14 @@ export const siteDefaults: readonly SiteConfig[] = [
     { kind: 'sitemap', url: 'https://www.chosun.com/arc/outboundfeeds/news-sitemap/?outputType=xml', pollEveryMs: 120_000 },
     { kind: 'sitemap', url: 'https://biz.chosun.com/arc/outboundfeeds/news-sitemap/?outputType=xml', pollEveryMs: 120_000 },
     { kind: 'sitemap', url: 'https://biz.chosun.com/arc/outboundfeeds/sitemap/?outputType=xml', pollEveryMs: 120_000 },
+    { kind: 'sitemap', url: 'https://health.chosun.com/googleNews_utf8.xml', pollEveryMs: 180_000 },
+    { kind: 'sitemap', url: 'https://health.chosun.com/english/googleNews_utf8_en.xml', pollEveryMs: 300_000 },
   ] },
   { domain: 'antaranews.com', requestsPerMinute: 10, seeds: [
     { kind: 'rss', url: 'https://www.antaranews.com/rss/terkini.xml', pollEveryMs: 60_000 },
     { kind: 'html', url: 'https://www.antaranews.com/', pollEveryMs: 120_000 },
+    { kind: 'html', url: 'https://en.antaranews.com/latest-news', pollEveryMs: 120_000 },
+    { kind: 'html', url: 'https://en.antaranews.com/rss', pollEveryMs: 3_600_000 },
   ] },
   { domain: 'bbc.com', requestsPerMinute: 5, seeds: [
     { kind: 'sitemap', url: 'https://www.bbc.com/sitemaps/https-index-com-news.xml', pollEveryMs: 120_000 },
@@ -44,10 +48,13 @@ export const siteDefaults: readonly SiteConfig[] = [
   { domain: 'udn.com', requestsPerMinute: 5, seeds: [
     { kind: 'rss', url: 'https://udn.com/news/rssfeed', pollEveryMs: 120_000 },
     { kind: 'sitemap', url: 'https://udn.com/sitemap/gnews_contents/2/1', pollEveryMs: 120_000 },
+    { kind: 'html', url: 'https://money.udn.com/', pollEveryMs: 300_000 },
   ] },
   { domain: 'hurriyet.com.tr', requestsPerMinute: 5, seeds: [
     { kind: 'rss', url: 'https://www.hurriyet.com.tr/rss/anasayfa', pollEveryMs: 60_000 },
     { kind: 'html', url: 'https://www.hurriyet.com.tr/son-dakika-haberleri/', pollEveryMs: 60_000 },
+    { kind: 'html', url: 'https://bigpara.hurriyet.com.tr/haberler/sondakika-haberleri/', pollEveryMs: 300_000 },
+    { kind: 'html', url: 'https://bigpara.hurriyet.com.tr/haberler/araci-kurum-gorusleri/', pollEveryMs: 600_000 },
   ] },
   { domain: 'haberturk.com', requestsPerMinute: 5, seeds: [
     { kind: 'rss', url: 'https://www.haberturk.com/rss/manset.xml', pollEveryMs: 120_000 },
@@ -56,6 +63,7 @@ export const siteDefaults: readonly SiteConfig[] = [
   ] },
   { domain: 'youm7.com', requestsPerMinute: 3, seeds: [
     { kind: 'html', url: 'https://www.youm7.com/', pollEveryMs: 180_000 },
+    { kind: 'sitemap', url: 'https://www.youm7.com/sitemap/SitemapNews', pollEveryMs: 900_000 },
   ] },
   { domain: 'eastmoney.com', requestsPerMinute: 3, articleAdapter: 'eastmoney', seeds: [
     { kind: 'html', url: 'http://finance.eastmoney.com/yaowen.html', pollEveryMs: 180_000 },
@@ -67,6 +75,8 @@ export const siteDefaults: readonly SiteConfig[] = [
   ] },
   { domain: 'ce.cn', requestsPerMinute: 3, articleAdapter: 'ce', seeds: [
     { kind: 'html', url: 'https://www.ce.cn/', pollEveryMs: 60_000 },
+    { kind: 'html', url: 'http://en.ce.cn/main/latest/index_14510.shtml', pollEveryMs: 300_000 },
+    { kind: 'html', url: 'http://finance.ce.cn/', pollEveryMs: 300_000 },
   ] },
   { domain: 'cnnbrasil.com.br', requestsPerMinute: 2, seeds: [
     { kind: 'sitemap', url: 'https://admin.cnnbrasil.com.br/sitemap-news.xml', pollEveryMs: 300_000 },
