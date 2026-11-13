@@ -2,13 +2,17 @@ export type DiscoverySource =
   | { readonly kind: 'sitemap' | 'feed' | 'html'; readonly url: string }
   | { readonly kind: 'api'; readonly url: string; readonly adapter: 'sina-roll' };
 
-export interface SitePolicy {
+export interface SiteConfig {
   readonly domain: string;
-  readonly enabled: boolean;
   readonly requestsPerMinute: number;
   readonly fetchProfile?: string;
   readonly articleAdapter?: string;
-  readonly discoverySources?: readonly DiscoverySource[];
+  readonly seeds?: readonly DiscoverySource[];
+}
+
+// Keep the scheduler/worker contract stable; every configured site is active.
+export interface SitePolicy extends SiteConfig {
+  readonly enabled: boolean;
 }
 
 // JSON-compatible configuration, also sent unchanged to the Python HTTP client.

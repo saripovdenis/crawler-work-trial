@@ -10,7 +10,7 @@ export function seedDiscovery(db: DatabaseSync, sites: readonly SitePolicy[], no
     WHERE sources.domain=excluded.domain AND sources.kind<>excluded.kind`);
   for (const site of sites) {
     addSite.run(site.domain, now);
-    const sources = site.discoverySources?.length ? site.discoverySources
+    const sources = site.seeds?.length ? site.seeds
       : [{kind: 'html' as const, url: `https://www.${site.domain}/`}];
     for (const source of sources)
       addSource.run(source.url, site.domain, source.kind === 'api' ? `api:${source.adapter}` : source.kind);
