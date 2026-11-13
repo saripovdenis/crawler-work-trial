@@ -70,12 +70,11 @@ belong in private `.env.monitor`. See [matching, limits and deployment](docs/REC
 
 ```sh
 npm ci                  # only for a fresh checkout
-npm run status          # per-site requests, parsing, fresh articles, errors
-tail -f logs/crawler.log # live JSON event stream; Ctrl-C only exits tail
-npm run stop            # graceful shutdown
+npm run dev             # scheduler in the foreground; Ctrl-C stops it
+npm run worker          # fetch worker, in a second terminal
 ```
 
-`npm run dev` runs the scheduler in the foreground. Stop the background process before debugging.
+Stop a running scheduler before starting a debug session against the same data directory.
 Only one crawler may use a data directory. Restarts preserve the setup clock, request
 history, queues, deduplication, and collected data. Edits take effect after stop/start.
 The process survives closing the terminal, but does not auto-start after reboot.
