@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { policy, configuredSourceIndex, fetchProfileFor } from '../../../../config/site-policy.js';
+import { policy, configuredSourceIndex, configuredSource, defaultScheduling, fetchProfileFor } from '../../../../config/site-policy.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
@@ -15,6 +15,7 @@ import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js'
 import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
 import { createBodyStore, type BodyStore } from '../../../../packages/protocol/src/body-store.js';
 import { elapsedMs, timingEnabled, timingLog } from '../../../../packages/protocol/src/timing.js';
+import { nextTurn } from './selection.js';
 const UA = 'ExaTrialCrawler/0.1';
 const STALE_LINK_MS = 3 * 3600_000;
 const FRESH_SCORE_WINDOW_MS = 6 * 3600_000;
@@ -102,6 +103,7 @@ export class Scheduler {
     return sourcePriority(source.url,source.kind)+(q?Math.min(40,20*q.newArticles/Math.max(1,q.polls)):0);
   }
   sourceInterval(source: Row, base: number) {
+    base = configuredSource(source.url)?.pollEveryMs ?? base;
     if(sourcePriority(source.url,source.kind)<0) return Math.max(base,6*3600_000);
     const q=this.sourceQuality.get(source.url);
     const alternative=[...this.sourceQuality.entries()].some(([url,other])=>url!==source.url && other.domain===source.domain && other.newArticles>0);
@@ -205,10 +207,13 @@ export class Scheduler {
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY t.next_crawl_at,t.id`,site.domain,now,now)
-          .sort((a,b)=>this.sourceScore(b)-this.sourceScore(a)||a.next_poll-b.next_poll)[0];
-        const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
-        const bootstrap=source && source.polls===0 && source.errors===0 && configuredSourceIndex(source.url)>=0;
-        let task = source && (bootstrap || turns>=2 || !candidate) ? source : candidate;
+          // Oldest due first prevents a productive source from starving other feeds.
+          .sort((a,b)=>a.next_crawl_at-b.next_crawl_at||this.sourceScore(b)-this.sourceScore(a)||a.id-b.id)[0];
+        const weights=site.scheduling ?? defaultScheduling;
+        const turnKey='discovery-turn:'+site.domain;
+        const savedTurn=Number(this.one('SELECT value FROM meta WHERE key=?',turnKey)?.value||0);
+        const turn=Number.isSafeInteger(savedTurn) && savedTurn>=0 ? savedTurn%(weights.articleWeight+weights.discoveryWeight) : 0;
+        let task = source && (turn>=weights.articleWeight || !candidate) ? source : candidate;
         // Audits only use otherwise idle slots, at most one starting per domain/hour.
         if (!task) task = this.one(`SELECT * FROM crawl_tasks WHERE domain=? AND purpose='audit' AND state='ready' AND next_crawl_at<=?
           AND (hops>0 OR NOT EXISTS(SELECT 1 FROM requests WHERE domain=? AND purpose='audit' AND started>?)) ORDER BY id LIMIT 1`,site.domain,now,site.domain,now-3600_000);
@@ -254,6 +259,12 @@ export class Scheduler {
           start_by:new Date(now+DISPATCH_MS).toISOString(),lease_until:new Date(now+LEASE_MS).toISOString() };
         this.run(`INSERT INTO attempt_assignments(attempt_id,request_id,task_id,domain,worker_id,claim_id,lease_token,start_by,lease_until,assignment)
           VALUES (?,?,?,?,?,?,?,?,?,?)`,value.attempt_id,slot.id,task.id,domain,worker,claim,value.lease_token,now+DISPATCH_MS,now+LEASE_MS,JSON.stringify(value));
+        // Update in the same transaction as the charge, never during parsing.
+        // Robots work is attributed to the parent that required it.
+        const allocationKind=task.purpose==='robots'
+          ? this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose : task.purpose;
+        if(allocationKind==='article' || allocationKind==='discovery')
+          this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',turnKey,String(nextTurn(turn,allocationKind,weights)));
         if(task.purpose==='article') this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','article-turns:'+site.domain,String(articleTurns+1));
         this.run("UPDATE crawl_tasks SET state='leased' WHERE id=?",task.id);
         return {task:value};
@@ -377,7 +388,7 @@ export class Scheduler {
       const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
       if(/HTTP (404|410)/.test(error)) this.run('DELETE FROM meta WHERE key=?','source-final:'+task.url);
       const permanent=/Response exceeds 5 MiB|Not a supported feed or sitemap/.test(error);
-      const due=now+(permanent?6*3600_000:denied?3600_000:Math.min(3600_000,30_000*2**source.errors));
+      const due=now+Math.max(configuredSource(source.url)?.pollEveryMs ?? 0,permanent?6*3600_000:denied?3600_000:Math.min(3600_000,30_000*2**source.errors));
       this.run('UPDATE sources SET errors=errors+1,next_poll=?,last_error=? WHERE url=?',due,error,task.url);
       this.run("UPDATE crawl_tasks SET state='ready',next_crawl_at=?,current_url=coalesce((SELECT value FROM meta WHERE key=?),url),hops=0 WHERE id=?",due,'source-final:'+task.url,task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=0 WHERE domain=?',task.domain);
@@ -407,7 +418,7 @@ export class Scheduler {
     let nextPriority=existing.priority;
     // Keep the same hint/priority/discovery rules, but avoid writing rows whose
     // values already match. These mappings run within the caller's transaction.
-    if(item.published || ((source.kind==='html' || source.kind.startsWith('api:')) && priority>0)) {
+    if(item.published || ((source.kind==='html' || source.kind.startsWith('html:') || source.kind.startsWith('api:')) && priority>0)) {
       const hint=existing.published_hint ?? item.published;
       nextPriority=Math.max(existing.priority,priority);
       const discovered=Math.min(existing.discovered,observed);

@@ -30,9 +30,9 @@ export function sourcePriority(url: string, kind: string, now = Date.now()): num
   }
   if(live) return 100;
   if (/\b20\d\d[-/]/i.test(path)) return -100;
-  if (kind === 'feed') return 80;
+  if (kind === 'rss' || kind === 'feed') return 80;
   if (kind.startsWith('api:')) return 100;
-  if (kind === 'html') return 60;
+  if (kind === 'html' || kind.startsWith('html:')) return 60;
   return 0;
 }
 

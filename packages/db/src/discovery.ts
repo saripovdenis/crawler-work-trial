@@ -13,6 +13,6 @@ export function seedDiscovery(db: DatabaseSync, sites: readonly SitePolicy[], no
     const sources = site.seeds?.length ? site.seeds
       : [{kind: 'html' as const, url: `https://www.${site.domain}/`}];
     for (const source of sources)
-      addSource.run(source.url, site.domain, source.kind === 'api' ? `api:${source.adapter}` : source.kind);
+      addSource.run(source.url, site.domain, source.kind === 'api' || (source.kind === 'html' && source.adapter) ? `${source.kind}:${source.adapter}` : source.kind);
   }
 }

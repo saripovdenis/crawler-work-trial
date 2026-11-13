@@ -6,7 +6,7 @@
 {
   domain: 'hoodline.com', requestsPerMinute: 5,
   fetchProfile: 'chrome',
-  seeds: [{ kind: 'feed', url: 'https://hoodline.com/rss' }],
+  seeds: [{ kind: 'rss', url: 'https://hoodline.com/rss', pollEveryMs: 120_000 }],
 }
 ```
 
@@ -73,16 +73,16 @@ The three stages stay separate:
 3. Article pages use generic extraction plus an optional article adapter. A
    discovery adapter never chooses the article extraction rules or sends requests.
 
-This configuration cleanup changes no fetch headers, source URLs, budgets, parser
-selectors or host scopes. It is not a throughput or coverage optimization. Parser
-cache keys include the config and source files, so this release invalidates old
-extraction caches; it does not refetch articles just to warm them.
+Fetch headers, request limits and host scopes remain independent of seed scheduling.
+Parser cache keys include config and source files, so a changed discovery profile
+invalidates extraction caches; articles are not refetched just to warm them.
 
 ## Seeds
 
 `seeds` is an optional ordered list on each site. Supported kinds are
-`html`, `feed` (RSS/Atom), `sitemap` (including indexes), and `api` with a named
-adapter. For example:
+`sitemap` (including news sitemaps and indexes), `rss` (RSS/Atom), `html`
+with an optional named adapter, and `api` with a required named adapter. Legacy
+`feed` configuration and stored rows remain supported as an alias for `rss`. For example:
 
 ```ts
 {
@@ -96,11 +96,10 @@ adapter. For example:
 ```
 
 The scheduler seeds these URLs into `sources`; sites with no configured sources
-start at `https://www.<domain>/`. Unattempted configured sources take precedence
-in array order, including over an existing article queue. Robots checks, request
-limits, cooldowns and existing leases still apply. Sources already polled or
-failed resume their stored schedule; restarting does not replay a bootstrap.
-After the first attempts, normal source scoring and article/discovery turns apply.
+start at `https://www.<domain>/`. Sources participate in the same weighted scheduling from their first attempt.
+Oldest-due discovery tasks run first; source score and seed order break ties.
+Robots checks, request limits, cooldowns and existing leases still apply. Sources
+already polled or failed resume their stored schedule; restarting does not replay a bootstrap.
 Old and automatically discovered source rows remain available. Removing a seed
 from config does not delete its stored source or history.
 
@@ -132,21 +131,21 @@ are in `config/sites.ts`.
 | --- | --- | --- |
 | sina.com.cn | Rolling APIs + finance rolling HTML + news/finance homepages | Existing configured sources; no site-wide completeness guarantee |
 | indiatimes.com | TOI today's sitemap + ET latest RSS + both homepages | TOI source in live DB; ET feed linked from its official RSS directory |
-| chosun.com | Main and business news sitemaps | Both already discover articles |
+| chosun.com | RSS + main and business news sitemaps | Sitemaps already discover articles; RSS added below |
 | antaranews.com | Latest RSS | Official RSS directory and successful DB source |
 | bbc.com | News sitemap index | Existing seed; its child news maps discover articles |
 | hoodline.com | RSS | Existing successful source; avoids www redirect |
-| udn.com | Google News sitemap | Existing successful source |
-| hurriyet.com.tr | Breaking-news HTML | Existing configured source |
-| haberturk.com | General and local recent-news sitemaps | Existing successful sources |
+| udn.com | RSS + Google News sitemap | Existing discovered RSS now configured explicitly |
+| hurriyet.com.tr | RSS + breaking-news HTML | RSS added below |
+| haberturk.com | RSS + general and local recent-news sitemaps | RSS added below |
 | youm7.com | Homepage | Section RSS has repeated redirects/partial responses; not preferred |
 | eastmoney.com | Important-news and domestic-economy HTML | Existing seeds; legacy gzip maps are stale |
-| eldiario.es | Google News sitemap | Existing successful source |
+| eldiario.es | RSS + Google News sitemap | Existing discovered RSS now configured explicitly |
 | ce.cn | Homepage | Existing successful discovery; no better current feed verified |
-| cnnbrasil.com.br | Admin-host news sitemap | Existing successful source |
+| cnnbrasil.com.br | Admin-host RSS + news sitemap | RSS added below |
 | biobiochile.cl | RSS and news sitemap | Existing successful sources; freshness can differ |
-| elmundo.es | All-news sitemap | Existing successful source; opaque name may change |
-| mediapart.fr | Homepage + editor-choice news sitemap | Deliberately partial; section/archive maps remain discoverable |
+| elmundo.es | RSS + all-news sitemap | Existing discovered RSS now configured explicitly; opaque sitemap name may change |
+| mediapart.fr | RSS + homepage + editor-choice news sitemap | Deliberately partial; section/archive maps remain discoverable |
 | eleconomista.es | News sitemap | Existing successful source with browser headers |
 | newindianexpress.com | News sitemap | Existing successful source |
 | zaobao.com.sg | Realtime listing + homepage | Publisher's current listing; new seed needs live-run observation |
@@ -168,3 +167,58 @@ Active leases and per-origin `budget_origins` robots delays can postpone dispatc
 
 Policies still use the same accessor interface. Ports, processes and environment
 variables are unchanged. See `docs/POSTGRES.md` for the budget migration.
+
+## RSS seeds and polling allocation
+
+Every configured seed has `pollEveryMs`, a minimum interval between completed
+fetches. The next due time is computed from the response finish time and persisted
+in `sources.next_poll` and `crawl_tasks.next_crawl_at`. A pending parse, budget
+constraint, backoff or low-yield source cooldown can delay it further. Configured
+interval changes apply after the next completed poll; deployment does not reset
+existing due times or active leases. Auto-discovered sources keep the existing
+rate-dependent interval (at least 30 seconds, twice that for sitemaps).
+
+Each site can override `scheduling: { articleWeight: 3, discoveryWeight: 1 }`.
+Those are also the shared defaults. Weights must be integers from 1 to 100;
+`pollEveryMs` must be an integer from 1 second through 7 days.
+
+When both queues have eligible work, the scheduler targets three article requests
+then one discovery request. When a queue is empty, the other borrows capacity but
+discovery still waits for its due time. This is a scheduling target, not a second
+rate limit. Mandatory robots work can change the observed short-term ratio.
+
+The turn cursor is stored in PostgreSQL `meta` as `discovery-turn:<domain>` and
+advances atomically with the request reservation, including failures and redirect
+hops. Robots requests count toward their parent's category. Duplicate claims and
+parsing completions do not consume turns. The old `scheduler_domains` counter is
+retained for compatibility and no longer chooses the request category. All HTTP
+attempts still use the existing single per-domain budget and robots delay.
+
+New explicit RSS seeds (some URLs were already auto-discovered):
+
+| Domain | RSS URL | Minimum interval |
+| --- | --- | --- |
+| chosun.com | https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml | 1 minute |
+| udn.com | https://udn.com/news/rssfeed | 2 minutes |
+| hurriyet.com.tr | https://www.hurriyet.com.tr/rss/anasayfa | 2 minutes |
+| haberturk.com | https://www.haberturk.com/rss/manset.xml | 2 minutes |
+| eldiario.es | https://www.eldiario.es/rss/ | 3 minutes |
+| cnnbrasil.com.br | https://admin.cnnbrasil.com.br/feed/ | 3 minutes |
+| elmundo.es | https://www.elmundo.es/rss/googlenews/portada.xml | 3 minutes |
+| mediapart.fr | https://www.mediapart.fr/articles/feed | 5 minutes |
+
+IndiaTimes, Antara, Hoodline and BioBioChile retain their existing feeds under
+`rss`. BBC's feed is on an unconfigured parent domain (`bbci.co.uk`), so it is not
+added. Sina's tested RSS was stale, Youm7's was malformed, and El Economista's was
+blocked in the feed review; existing sources remain in place for them.
+
+The intervals are starting values, not completeness guarantees: small feeds can
+roll over before the next affordable poll. Monitor new articles per poll, oldest
+retained entry, actual time between successful polls, and the article backlog.
+
+Optional HTML adapters live in `config/profiles.ts` as `htmlDiscoveryAdapters`.
+Each entry specifies CSS selectors `articleLinks` and optional `paginationLinks`;
+selected elements must carry `href`. A seed references the entry by name, stored
+as `html:<name>` in `sources.kind`. Pagination returns source URLs to the scheduler
+and never performs HTTP in the parser. No HTML adapter is enabled by default.
+Sitemap/RSS parsing and generic HTML discovery need no custom adapter.
