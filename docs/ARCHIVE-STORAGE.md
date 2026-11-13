@@ -63,12 +63,15 @@ latency. It also includes the most recent hash-verification summary.
 `exa-archive-verify.timer` checks up to 1,000 previously unverified objects every
 five minutes with the read-only key. It reads the current deployed release from
 the root-owned release manifest and remains separate from the fetch worker.
-Run verification with the read-only key from the currently deployed directory:
+Run an additional full pass with the read-only key as the service user:
 
 ```sh
-sudo env CRAWLER_DATA_DIR=/var/lib/exa-crawler/data ARCHIVE_VERIFY_LIMIT=100000 ARCHIVE_VERIFY_ALL=1 \
-  /usr/local/bin/node --env-file=/etc/exa-archive-reader.env --import tsx \
-  tools/storage/verify-mirror.ts
+sudo systemd-run --wait --pipe --collect --uid=exa-crawler \
+  -p EnvironmentFile=/etc/exa-archive-reader.env \
+  -p "WorkingDirectory=$(systemctl show exa-crawler -p WorkingDirectory --value)" \
+  -E CRAWLER_DATA_DIR=/var/lib/exa-crawler/data \
+  -E ARCHIVE_VERIFY_LIMIT=100000 -E ARCHIVE_VERIFY_ALL=1 \
+  /usr/local/bin/node --import tsx tools/storage/verify-mirror.ts
 ```
 
 It compares decompressed SHA-256 and bytes with local originals, recording
