@@ -37,7 +37,7 @@ function discoverEastmoneyLive(body: string, url: string) {
     || !['/comm/web/getFastNewsList', '/comm/web/getFastNewsZhibo'].includes(endpoint.pathname))
     throw new Error('Unexpected URL for eastmoney-live');
   const result = JSON.parse(body);
-  if (result?.code !== 1 || !Array.isArray(result.data?.fastNewsList))
+  if ((result?.code !== '1' && result?.code !== 1) || !Array.isArray(result.data?.fastNewsList))
     throw new Error('Invalid eastmoney-live response');
   const articles: {url: string; published: null}[] = [];
   let partial = false;
