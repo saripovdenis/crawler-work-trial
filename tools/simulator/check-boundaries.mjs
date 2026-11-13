@@ -23,6 +23,8 @@ export function violationsFor(path, source) {
   for (const match of source.matchAll(/(?:from\s*|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g)) {
     if (!match[1].startsWith('.')) continue;
     const target = relative(ownRoot, resolve(ownRoot, dirname(path), match[1])).replaceAll('\\', '/');
+    if (/^config\/sites\.[jt]s$/.test(target) && path !== 'config/site-policy.ts')
+      errors.push(`${path}: raw site defaults must be accessed through config/site-policy`);
     const targetService = service(target);
     if (targetService && targetService !== service(path)) errors.push(`${path}: imports another service's source (${target})`);
     if (/node:sqlite/.test(source)) errors.push(`${path}: SQLite access; rows live in PostgreSQL`);

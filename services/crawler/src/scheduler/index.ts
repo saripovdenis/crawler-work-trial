@@ -1,8 +1,8 @@
+import { policy } from '../../../../config/site-policy.js';
 import { resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { db, dataDir, summary } from '../../../../packages/db/src/store.js';
 import { discoverySeeds } from '../../../../config/discovery.js';
-import { sites } from '../../../../config/sites.js';
 import { acquireLock, atomicWrite } from '../../../../packages/protocol/src/files.js';
 import { Scheduler } from './durable.js';
 import { importAudits } from '../../../../packages/reconciliation/src/audits.js';
@@ -11,7 +11,7 @@ import { schedulerServer } from './server.js';
 const release=acquireLock(resolve(dataDir,'crawler.pid'));
 const now=Date.now();
 db.prepare("INSERT OR IGNORE INTO meta(key,value) VALUES ('started',?)").run(new Date(now).toISOString());
-for(const site of sites) {
+for(const site of policy.all()) {
   db.prepare('INSERT OR IGNORE INTO sites(domain,started) VALUES (?,?)').run(site.domain,now);
   db.prepare("INSERT OR IGNORE INTO sources(url,domain,kind) VALUES (?,?,'html')").run(`https://www.${site.domain}/`,site.domain);
 }

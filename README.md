@@ -24,6 +24,11 @@ The response archive currently uses local reads plus an asynchronous Garage mirr
 See [storage rollout, validation and rollback](docs/ARCHIVE-STORAGE.md).
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
+Site limits, enabled flags and transports live in `config/sites.ts`, behind the
+validated `policy.for()`, `policy.all()` and `policy.active()` accessors.
+Set `enabled: false` to pause a domain; deploy/restart all services to apply it.
+See [site policies, pause behavior and shared budget rules](docs/SITE-POLICY.md).
+
 ## Repository layout
 
 ```text

@@ -410,7 +410,7 @@ export default function App() {
                       <TableHead>Website</TableHead>
                       <TableHead>Fresh articles</TableHead>
                       <TableHead>Request budget / min</TableHead>
-                      <TableHead>Next poll eligible</TableHead>
+                      <TableHead>Budget eligible</TableHead>
                       <TableHead className="text-right">
                         Last request UTC
                       </TableHead>
@@ -429,6 +429,7 @@ export default function App() {
                           >
                             {s.domain}
                           </button>
+                          {s.enabled === false && <Badge variant="secondary" className="ml-2">Paused</Badge>}
                         </TableCell>
                         <TableCell className="numeric">
                           {number(s.fresh)}
@@ -438,7 +439,7 @@ export default function App() {
                             <div>
                               <i
                                 style={{
-                                  width: `${Math.min(100, (s.usedThisMinute / s.currentLimit) * 100)}%`,
+                                  width: `${s.currentLimit ? Math.min(100, (s.usedThisMinute / s.currentLimit) * 100) : 0}%`,
                                 }}
                               />
                             </div>
@@ -451,10 +452,10 @@ export default function App() {
                         <TableCell>
                           <span
                             className={
-                              s.nextEligible <= Date.now() ? "eligible" : ""
+                              s.nextEligible != null && s.nextEligible <= Date.now() ? "eligible" : ""
                             }
                           >
-                            {due(s.nextEligible)}
+                            {s.enabled === false ? "Paused" : s.nextEligible == null ? "Not initialized" : due(s.nextEligible)}
                           </span>
                         </TableCell>
                         <TableCell className="text-right muted numeric">

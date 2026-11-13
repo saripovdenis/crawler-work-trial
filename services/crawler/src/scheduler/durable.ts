@@ -2,8 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { sites } from '../../../../config/sites.js';
-import { chromeSites } from '../../../../config/profiles.js';
+import { policy } from '../../../../config/site-policy.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
@@ -40,6 +39,8 @@ export class Scheduler {
   private reuse={mappingSkips:0,avoidedDownloads:0,pendingArchiveWaits:0,archivedReparses:0,aliasesRecorded:0};
   private freshTurns = 0;
   private statements = new Map<string, ReturnType<DatabaseSync['prepare']>>();
+  private readonly domains = policy.all().map(site => site.domain);
+  private readonly domainParams = this.domains.map(() => '?').join(',') || 'NULL';
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number; dated: number; fresh: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) {
     migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
@@ -51,10 +52,13 @@ export class Scheduler {
   // stays, so the same link is not queued again when a page keeps showing it.
   // Only waiting links are touched: leased or downloaded tasks finish normally.
   expireStale(limit = 5000): number {
+    const active = policy.active().map(site => site.domain);
+    if (!active.length) return 0;
     return this.transaction(() => {
       const rows=this.all(`SELECT c.url,t.id FROM candidates c
         JOIN crawl_tasks t ON t.url=c.url AND t.purpose='article'
-        WHERE c.state='pending' AND c.priority>0 AND c.discovered<? AND t.state='ready' LIMIT ?`,this.clock()-STALE_LINK_MS,limit);
+        WHERE c.state='pending' AND c.priority>0 AND c.discovered<? AND t.state='ready'
+        AND c.domain IN (${active.map(() => '?').join(',')}) LIMIT ?`,this.clock()-STALE_LINK_MS,...active,limit);
       for(const row of rows) {
         this.run("UPDATE candidates SET state='stale',last_error='Not fetched within 3 hours of discovery' WHERE url=?",row.url);
         this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",row.id);
@@ -154,14 +158,17 @@ export class Scheduler {
       const prior = this.one('SELECT * FROM attempt_assignments WHERE claim_id=?', claim);
       if (prior) {
         if (prior.worker_id !== worker) throw new ContractError('Claim belongs to another worker',409);
+        const owner = this.one('SELECT domain FROM crawl_tasks WHERE id=?', prior.task_id);
+        if (!policy.for(prior.domain)?.enabled || !policy.for(owner?.domain)?.enabled)
+          return {task:null,retry_after_ms:1000};
         return { task: JSON.parse(prior.assignment) };
       }
       const now = this.clock();
-      for (const site of sites) {
+      for (const site of policy.active()) {
         if (!this.one('SELECT 1 FROM sites WHERE domain=?',site.domain)) continue;
         if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL", site.domain)) continue;
         // Avoid scanning large candidate queues before this domain can spend a slot.
-        if (slotDue(this.db, site.domain, site.requestsPerMinute, 0, now) > now) continue;
+        if (slotDue(this.db, site.domain, 0, now) > now) continue;
         const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8) settled", site.domain)!.n;
         // Choose the constant range before preparing SQL. The equivalent OR
         // predicate scans priority-zero rows even after the initial sample ends.
@@ -204,7 +211,7 @@ export class Scheduler {
         if (robots) task = robots;
         if (!task) continue;
         const assignedDomain = domainFor(task.current_url);
-        if (!assignedDomain) { this.fail(task,'URL is outside configured domains',true); continue; }
+        if (!assignedDomain || !policy.for(assignedDomain)?.enabled) continue;
         if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL",assignedDomain)) continue;
         let delay = 0;
         if (task.purpose !== 'robots') {
@@ -224,9 +231,10 @@ export class Scheduler {
             delay=rules.getCrawlDelay(UA)||0;
           }
         }
-        const domain=domainFor(task.current_url)!;
-        const rpm=sites.find(s=>s.domain===domain)!.requestsPerMinute;
-        const slot=reserveSlot(this.db,domain,task.current_url,task.purpose,rpm,delay,now);
+        const domain=domainFor(task.current_url);
+        const target = domain ? policy.for(domain) : undefined;
+        if (!domain || !target?.enabled) continue;
+        const slot=reserveSlot(this.db,domain,task.current_url,task.purpose,delay,now);
         if (!slot.id) continue;
         const headers: Record<string,string> = task.hops ? {} : JSON.parse(task.headers);
         if(task.purpose==='robots') Object.assign(headers,this.robotsCache.headers(task.origin,task.current_url));
@@ -236,7 +244,7 @@ export class Scheduler {
           if(s.modified) headers['If-Modified-Since']=s.modified;
         }
         const value: Assignment = { task_id:String(task.id),attempt_id:randomUUID(),lease_token:randomUUID(),domain,url:task.current_url,
-          purpose:task.purpose,transport:chromeSites.has(domain)?'chrome136':'node',headers,timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,
+          purpose:task.purpose,transport:target.transport,headers,timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,
           start_by:new Date(now+DISPATCH_MS).toISOString(),lease_until:new Date(now+LEASE_MS).toISOString() };
         this.run(`INSERT INTO attempt_assignments(attempt_id,request_id,task_id,domain,worker_id,claim_id,lease_token,start_by,lease_until,assignment)
           VALUES (?,?,?,?,?,?,?,?,?,?)`,value.attempt_id,slot.id,task.id,domain,worker,claim,value.lease_token,now+DISPATCH_MS,now+LEASE_MS,JSON.stringify(value));
@@ -329,6 +337,12 @@ export class Scheduler {
     this.reuse.archivedReparses++;return true;
   }
   fail(task: Row, error: string, denied=false) {
+    const target = domainFor(task.current_url);
+    if (!policy.for(task.domain)?.enabled || (target && !policy.for(target)?.enabled)) {
+      // Preserve the queue if an old lease expires or completes after a pause.
+      this.run("UPDATE crawl_tasks SET state='ready' WHERE id=?",task.id);
+      return;
+    }
     const now=this.clock();
     if(task.purpose==='audit') {
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
@@ -418,6 +432,7 @@ export class Scheduler {
     try { return new TextDecoder(charset).decode(bytes); } catch { return bytes.toString('utf8'); }
   }
   private finishProcessing(a: Row, task: Row, value: Completion, body: string, parsed?: ParseResult) {
+    if (!policy.for(task.domain)) return;
     const started=performance.now();
     const exports: {payload:string;fresh:boolean}[]=[];
     this.transaction(()=> {
@@ -448,7 +463,9 @@ export class Scheduler {
   // Synchronous fixture/recovery helper. Live entry points use processAsync.
   process(limit = 50) {
     if(this.processingJob) return;
-    for(const a of this.all("SELECT * FROM attempt_assignments WHERE processing='pending' AND process_after<=? ORDER BY request_id LIMIT ?",this.clock(),limit)) {
+    for(const a of this.all(`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
+      WHERE a.processing='pending' AND a.process_after<=? AND t.domain IN (${this.domainParams})
+      ORDER BY a.request_id LIMIT ?`,this.clock(),...this.domains,limit)) {
       try {
         const task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!,value: Completion=JSON.parse(a.completion);
         const body=value.error?'':this.readBody(value);
@@ -465,8 +482,9 @@ export class Scheduler {
   private processControls(limit: number) {
     const controls=this.all(`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
       JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?
+      AND t.domain IN (${this.domainParams})
       AND (r.error IS NOT NULL OR r.status IS NULL OR r.status<>200 OR t.purpose NOT IN ('article','discovery'))
-      ORDER BY a.request_id LIMIT ?`,this.clock(),limit);
+      ORDER BY a.request_id LIMIT ?`,this.clock(),...this.domains,limit);
     for(const a of controls) {
       try {
         const task=this.one('SELECT * FROM crawl_tasks WHERE id=?',a.task_id)!,value: Completion=JSON.parse(a.completion);
@@ -534,18 +552,18 @@ export class Scheduler {
     const now=this.clock();
     const base=`SELECT a.* FROM attempt_assignments a JOIN crawl_tasks t ON t.id=a.task_id
       JOIN requests r ON r.id=a.request_id WHERE a.processing='pending' AND a.process_after<=?
-      AND r.status=200 AND r.error IS NULL`;
+      AND t.domain IN (${this.domainParams}) AND r.status=200 AND r.error IS NULL`;
     // Inspect a new source's first response promptly, then drain established
     // sources in arrival order. This changes parsing order, never poll budgets.
     const discovery=()=>this.one(base+` AND t.purpose='discovery'
-      ORDER BY coalesce((SELECT polls FROM sources WHERE url=t.url),0)=0 DESC,a.request_id LIMIT 1`,now);
+      ORDER BY coalesce((SELECT polls FROM sources WHERE url=t.url),0)=0 DESC,a.request_id LIMIT 1`,now,...this.domains);
     if(this.articlesSinceDiscovery>=3) {
       const a=discovery();
       if(a) {this.articlesSinceDiscovery=0;return a;}
     }
     // Keep fresh articles timely, while one in five turns drains older archives.
     const direction=this.articleParses%5===4?'ASC':'DESC';
-    const article=this.one(base+` AND t.purpose='article' ORDER BY a.request_id ${direction} LIMIT 1`,now);
+    const article=this.one(base+` AND t.purpose='article' ORDER BY a.request_id ${direction} LIMIT 1`,now,...this.domains);
     if(article) {this.articlesSinceDiscovery++;this.articleParses++;return article;}
     const a=discovery();
     if(a)this.articlesSinceDiscovery=0;
@@ -602,7 +620,8 @@ export class Scheduler {
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
       return;
     }
-    const site=sites.find(s=>s.domain===task.domain)!;
+    const site=policy.for(task.domain);
+    if (!site) return;
     const started=this.one('SELECT started FROM sites WHERE domain=?',site.domain)!.started;
     if(task.purpose==='discovery') {
       if(status!==200 && status!==304) {this.fail(task,`HTTP ${status}`);return;}

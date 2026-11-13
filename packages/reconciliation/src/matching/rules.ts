@@ -1,3 +1,4 @@
+import { nonArticleHosts } from '../../../../config/article-rules.js';
 // Every threshold and switch of the sample-to-article matcher lives here.
 // Turning a rule off, or changing a number, needs no other edit.
 export const matchingRules = {
@@ -24,9 +25,7 @@ export const matchingRules = {
   },
   // Hosts whose every page is a known non-article shape. A sample row is
   // excluded only when the provider itself names one of these as its source.
-  nonArticleHosts: {
-    'comment5.news.sina.com.cn': 'comment_page',
-  } as Record<string, 'comment_page'>,
+  nonArticleHosts,
 };
 
 // How a sample row was tied to a fetched article. 'exact' is the original

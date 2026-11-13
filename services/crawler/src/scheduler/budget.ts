@@ -1,30 +1,25 @@
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { nextAllowed } from '../../../../packages/core/src/policy.js';
-
-// Five seconds to dispatch + 25s transport cap + five seconds of margin.
-// Unfinished reservations stay charged across crashes before spacing begins.
-const IN_FLIGHT_MS = 35_000;
+import { budgetDue } from '../../../../packages/core/src/policy.js';
+import { policy, siteRules } from '../../../../config/site-policy.js';
 
 // Read-only eligibility check; reserveSlot repeats it inside the write transaction.
-export function slotDue(db: DatabaseSync, domain: string, rpm: number, crawlDelay: number, now: number): number {
+export function slotDue(db: DatabaseSync, domain: string, crawlDelay: number, now: number): number {
+  const configured = policy.for(domain);
+  if (!configured?.enabled) return Infinity;
   const site = db.prepare('SELECT started,cooldown FROM sites WHERE domain=?').get(domain) as { started: number; cooldown: number } | undefined;
-  if (!site) throw new Error(`Site not initialized: ${domain}`);
-  const recent = (db.prepare('SELECT started,finished FROM requests WHERE domain=? ORDER BY started DESC,id DESC LIMIT 61').all(domain) as { started: number; finished: number | null }[]).reverse();
-  let due = Math.max(site.cooldown, nextAllowed(now, site.started, rpm, recent.map(r => r.started), crawlDelay));
-  if (recent.length) {
-    const lastPossibleDispatch = Math.max(...recent.map(r => r.finished ?? r.started + IN_FLIGHT_MS));
-    due = Math.max(due, nextAllowed(now, site.started, rpm, [lastPossibleDispatch], crawlDelay));
-  }
-  return due;
+  if (!site) return Infinity;
+  const recent = (db.prepare('SELECT started,finished FROM requests WHERE domain=? ORDER BY started DESC,id DESC LIMIT ?')
+    .all(domain, siteRules.maxRequestsPerMinute + 1) as { started: number; finished: number | null }[]).reverse();
+  return budgetDue(now, site.started, configured.requestsPerMinute, recent, site.cooldown, crawlDelay);
 }
 
 export function reserveSlot(db: DatabaseSync, domain: string, url: string,
-  purpose: string, rpm: number, crawlDelay: number, clock?: number): { id?: number; due: number } {
+  purpose: string, crawlDelay: number, clock?: number): { id?: number; due: number } {
   const ownsTransaction = !db.isTransaction;
   if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     const now = clock ?? Date.now();
-    const due = slotDue(db, domain, rpm, crawlDelay, now);
+    const due = slotDue(db, domain, crawlDelay, now);
     const id = due <= now ? Number(db.prepare('INSERT INTO requests(domain,url,purpose,started) VALUES (?,?,?,?)').run(domain, url, purpose, now).lastInsertRowid) : undefined;
     if (ownsTransaction) db.exec('COMMIT');
     return { id, due };

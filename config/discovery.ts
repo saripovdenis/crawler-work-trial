@@ -17,17 +17,23 @@ export const discoverySeeds = [
   { domain: 'bbc.com', url: 'https://www.bbc.com/sitemaps/https-index-com-news.xml', kind: 'sitemap' },
 ] as const;
 
+// Host keys are checked against the site policies at startup.
+export const sourceHostPriorities: Record<string, (path: string) => number | undefined> = {
+  'www.hurriyet.com.tr': path => path === '/son-dakika-haberleri/' ? 100 : undefined,
+  'finance.eastmoney.com': path => ['/yaowen.html', '/news/cgnjj.html'].includes(path) ? 100 : undefined,
+  // Legacy maps contain October 2017 articles.
+  'www.eastmoney.com': path => path === '/sitemap.xml' ? -100 : undefined,
+  'rss.eastmoney.com': path => /^\/sitemaps\/(?:stock|finance|hk|forex)_sitemap\.xml\.gz$/.test(path) ? -100 : undefined,
+  // This legacy list returns a script redirect to /roll/c/51894.shtml.
+  'finance.sina.com.cn': path => path === '/roll/index.d.html' ? -100 : undefined,
+};
+
 export function sourcePriority(url: string, kind: string, now = Date.now()): number {
   let path: string;
   try {
     const parsed=new URL(url);path=parsed.pathname;
-    if (parsed.hostname==='www.hurriyet.com.tr' && path==='/son-dakika-haberleri/') return 100;
-    if (parsed.hostname==='finance.eastmoney.com' && ['/yaowen.html','/news/cgnjj.html'].includes(path)) return 100;
-    // The index lists legacy maps; all 200 URLs in these four archived children are dated October 2017.
-    if ((parsed.hostname==='www.eastmoney.com' && path==='/sitemap.xml')
-        || (parsed.hostname==='rss.eastmoney.com' && /^\/sitemaps\/(?:stock|finance|hk|forex)_sitemap\.xml\.gz$/.test(path))) return -100;
-    // This legacy list now returns only a script redirect to /roll/c/51894.shtml.
-    if(parsed.hostname==='finance.sina.com.cn' && path==='/roll/index.d.html')return -100;
+    const priority = sourceHostPriorities[parsed.hostname]?.(path);
+    if (priority !== undefined) return priority;
   } catch { return -100; }
   if (/archive|tags?\b|author|video|image|imsakiye|updateoldcontents/i.test(path)) return -100;
   const live=/48hours|google[_-]?news|[-_/]news[._-]|gnews|airoll|\/roll\/(?:index|c\/)|recent|latest/i.test(path);

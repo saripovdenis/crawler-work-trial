@@ -1,6 +1,6 @@
 import { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { resolve } from 'node:path';
-import { sites } from '../../../../config/sites.js';
+import { policy } from '../../../../config/site-policy.js';
 
 export const chartWindows = { '5m': 300_000, '30m': 1800_000, '1h': 3600_000, '3h': 10800_000, '1d': 86400_000, '1w': 604800_000 } as const;
 type Window = keyof typeof chartWindows;
@@ -29,7 +29,7 @@ export class Charts {
     const rows = this.db.prepare(`SELECT domain,count(*) total,
       sum(classification='incomplete') incomplete FROM articles
       WHERE fetched>=? AND fetched<? GROUP BY domain`).all(start, end) as Counts[];
-    const domains = sites.map(({ domain }) => {
+    const domains = policy.all().map(({ domain }) => {
       const row = rows.find(r => r.domain === domain) ?? { domain, total: 0, incomplete: 0 };
       return { ...row, percentage: row.total ? row.incomplete / row.total * 100 : null };
     }).sort((a, b) => (b.percentage ?? -1) - (a.percentage ?? -1) || a.domain.localeCompare(b.domain));

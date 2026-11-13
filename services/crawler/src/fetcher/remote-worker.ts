@@ -9,6 +9,8 @@ import { elapsedMs, timingLog } from '../../../../packages/protocol/src/timing.j
 import { fetchResponse } from './transports/transport.js';
 import { createBodyStore, type BodyStore } from '../../../../packages/protocol/src/body-store.js';
 import { ArchiveMirror } from '../../../../packages/protocol/src/archive-mirror.js';
+import { policy } from '../../../../config/site-policy.js';
+import { domainFor } from '../../../../packages/core/src/policy.js';
 const stores=new Map<string,BodyStore>();
 const archiveStore=(directory:string)=> {
   let store=stores.get(directory);
@@ -24,6 +26,9 @@ export async function execute(task: Assignment, directory: string): Promise<Comp
   try {
     if(Date.now()>Date.parse(task.start_by)) throw new Error('Dispatch deadline expired');
     if(task.timeout_ms!==20_000 || task.max_response_bytes!==MAX_RESPONSE_BYTES || !['node','chrome136'].includes(task.transport)) throw new Error('Unsupported assignment limits');
+    // Persisted, undispatched assignments must respect a pause after restart.
+    if (!policy.for(task.domain)?.enabled || domainFor(task.url) !== task.domain)
+      throw new Error('Site policy does not allow this request');
     result.started_at=new Date().toISOString();
     next('response_wait');
     const response=await fetchResponse(task.url,task.headers,AbortSignal.timeout(task.timeout_ms),task);

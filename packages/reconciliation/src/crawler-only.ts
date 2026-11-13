@@ -1,6 +1,6 @@
 import { DatabaseSync, hasTable } from '../../pg/src/sync.js';
 import { comparisonProviders, defaultComparisonProvider } from '../../../config/comparison.js';
-import { sites } from '../../../config/sites.js';
+import { policy } from '../../../config/site-policy.js';
 import { pollInterval, pollLookback, providerIds, type ProviderId } from '../../../config/monitor.js';
 import { ARTICLE_SELECT, matchSightings, windows } from './view.js';
 import { fetchedArticles } from './timing.js';
@@ -46,7 +46,7 @@ export function crawlerOnlyQuery(params: URLSearchParams) {
   const window = params.get('window') || '24h', site = params.get('site') || '',
     provider = params.get('provider') || defaultComparisonProvider, show = params.get('show') || 'all',
     page = Number(params.get('page') || 1);
-  if (!['1h','24h','7d'].includes(window) || (site && !sites.some(s => s.domain === site))
+  if (!['1h','24h','7d'].includes(window) || (site && !policy.for(site))
     || !Object.hasOwn(comparisonProviders, provider) || !statuses.includes(show as CrawlerOnlyShow)
     || !Number.isInteger(page) || page < 1 || page > rowLimit / 50)
     throw new Error('Invalid crawler-only filter');
@@ -168,7 +168,7 @@ export class CrawlerOnlyReader {
           ? `The last successful covering ${providerNames[id]} poll hit its result cap.`
           : `The last successful covering ${providerNames[id]} poll was under its result cap.`,match:null,poll};
       };
-      const domains = sites.filter(value => !site || value.domain === site).map(value => {
+      const domains = policy.all().filter(value => !site || value.domain === site).map(value => {
         const polls = Object.fromEntries(providerIds.map(id => {
           const rows = pollGroups.get(value.domain + '|' + id) || [], successful = rows.filter(run => run.status === 'ok'),
             capped = successful.filter(run => run.truncated).length;
@@ -202,7 +202,7 @@ export class CrawlerOnlyReader {
         const domain = byDomain.get(row.site);if (domain) countArticle(domain,row,selected,now,minimumAge);
       }
       return {window,windowStart:start,windowEnd:now,windowTimestamp:'article_published_at',generatedAt:now,
-        sites:sites.map(value => value.domain),provider,selectedProviders:selected,summary,domains,
+        sites:policy.all().map(value => value.domain),provider,selectedProviders:selected,summary,domains,
         articles:rows,rowsLimit:rowLimit,rowsTruncated:summary.total>rowLimit,totalRows:summary.total,
         population,ready:!!monitor,gracePeriodMinutes:minimumAge/60000,cadenceMinutes:pollInterval/60000,provisional:window==='1h'};
     } finally {monitor?.close();crawler.close();}

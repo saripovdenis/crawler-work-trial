@@ -2,10 +2,10 @@ import { DatabaseSync } from "../../../../packages/pg/src/sync.js";
 import { readFile } from "node:fs/promises";
 import { createBodyStore } from "../../../../packages/protocol/src/body-store.js";
 import { resolve } from "node:path";
-import { sites } from "../../../../config/sites.js";
+import { policy, siteRules } from "../../../../config/site-policy.js";
 import { LruCache } from "../../../../packages/core/src/lru.js";
 import { PARSER_VERSION } from "../../../../packages/core/src/parser-version.js";
-import { nextAllowed } from "../../../../packages/core/src/policy.js";
+import { budgetDue, currentRequestLimit } from "../../../../packages/core/src/policy.js";
 
 type Row = Record<string, any>;
 export class Observatory {
@@ -42,7 +42,7 @@ export class Observatory {
     );
     const minuteRows = this.all(
       "SELECT domain,count(*) AS n FROM requests WHERE started>? GROUP BY domain",
-      now - 60_000,
+      now - siteRules.windowMs,
     );
     const queueRows = this.all(
       "SELECT domain,count(*) AS total,sum(priority>0) AS ready FROM candidates WHERE state='pending' GROUP BY domain",
@@ -51,22 +51,17 @@ export class Observatory {
       "SELECT domain,count(*) AS n FROM candidates WHERE state='stale' GROUP BY domain",
     );
     const configurations = this.all("SELECT * FROM sites");
-    const perSite = sites.map((site) => {
+    const perSite = policy.all().map((site) => {
       const r = requestRows.find((r) => r.domain === site.domain) || {};
       const s = sourceRows.find((r) => r.domain === site.domain) || {};
       const a = articleRows.find((r) => r.domain === site.domain) || {};
       const c = configurations.find((r) => r.domain === site.domain) || {};
       const q = queueRows.find((r) => r.domain === site.domain) || {};
       const recent = this.all(
-        "SELECT started FROM requests WHERE domain=? ORDER BY id DESC LIMIT 61",
-        site.domain,
-      )
-        .reverse()
-        .map((r) => r.started);
-      const availableAt = Math.max(
-        c.cooldown || 0,
-        nextAllowed(now, c.started || 0, site.requestsPerMinute, recent),
-      );
+        "SELECT started,finished FROM requests WHERE domain=? ORDER BY started DESC,id DESC LIMIT ?",
+        site.domain, siteRules.maxRequestsPerMinute + 1,
+      ).reverse() as {started: number; finished: number | null}[];
+      const availableAt = budgetDue(now, c.started || 0, site.requestsPerMinute, recent, c.cooldown || 0);
       const error = this.one(
         "SELECT last_error FROM sources WHERE domain=? AND last_error IS NOT NULL ORDER BY next_poll DESC LIMIT 1",
         site.domain,
@@ -79,7 +74,7 @@ export class Observatory {
         usedThisMinute:
           minuteRows.find((r) => r.domain === site.domain)?.n || 0,
         currentLimit:
-          now < (c.started || 0) + 600_000 ? 60 : site.requestsPerMinute,
+          site.enabled ? currentRequestLimit(now, c.started || 0, site.requestsPerMinute) : 0,
         sources: s.total || 0,
         healthySources: s.healthy || 0,
         articles: a.total || 0,
@@ -87,9 +82,11 @@ export class Observatory {
         queued: q.total || 0,
         priorityQueued: q.ready || 0,
         stale: staleRows.find((r) => r.domain === site.domain)?.n || 0,
-        nextEligible: Math.max(availableAt, s.next_poll || now),
+        // Budget eligibility only; pending work and origin-specific robots rules
+        // can delay the actual poll. Paused/uninitialized sites have no due time.
+        nextEligible: site.enabled && c.started != null ? availableAt : null,
         lastError: error || null,
-        health: !s.healthy
+        health: !site.enabled ? "paused" : !s.healthy
           ? "blocked"
           : s.healthy < s.total
             ? "degraded"
@@ -137,7 +134,9 @@ export class Observatory {
         fresh: perSite.reduce((n, s) => n + s.fresh, 0),
         errors: perSite.reduce((n, s) => n + s.errors, 0),
         healthySites: perSite.filter((s) => s.health === "healthy").length,
-        respondingSites: perSite.filter((s) => s.healthySources > 0).length,
+        respondingSites: perSite.filter((s) => s.enabled && s.healthySources > 0).length,
+        activeSites: policy.active().length,
+        pausedSites: perSite.filter((s) => !s.enabled).length,
         p50Delay: percentile(0.5),
         p95Delay: percentile(0.95),
         delaySamples: delays.length,
@@ -152,7 +151,7 @@ export class Observatory {
   }
   filter(params: URLSearchParams) {
     const domain = params.get("domain") || "";
-    if (domain && !sites.some((s) => s.domain === domain))
+    if (domain && !policy.for(domain))
       throw new Error("Invalid domain");
     const cursor = Number(params.get("before") || 0);
     if (!Number.isSafeInteger(cursor) || cursor < 0)

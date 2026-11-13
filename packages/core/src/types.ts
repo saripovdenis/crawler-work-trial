@@ -1,6 +1,8 @@
-export interface SiteConfig {
-  domain: string;
-  requestsPerMinute: number;
+export interface SitePolicy {
+  readonly domain: string;
+  readonly enabled: boolean;
+  readonly requestsPerMinute: number;
+  readonly transport: 'node' | 'chrome136';
 }
 
 export interface Article {

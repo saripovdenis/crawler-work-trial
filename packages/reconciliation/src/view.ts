@@ -1,6 +1,6 @@
 import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { LruCache } from "../../core/src/lru.js";
-import { sites } from "../../../config/sites.js";
+import { policy } from "../../../config/site-policy.js";
 import { comparisonProviders, defaultComparisonProvider } from "../../../config/comparison.js";
 import { pollInterval } from "../../../config/monitor.js";
 import { urlKey } from "./identity.js";
@@ -17,7 +17,7 @@ export function coverageQuery(params: URLSearchParams) {
   const window = params.get("window") || "1h", site = params.get("site") || "",
     provider = params.get("provider") || defaultComparisonProvider, matches = params.get("matches") || "all",
     page = Number(params.get("page") || 1);
-  if (!Object.hasOwn(windows, window) || (site && !sites.some(s => s.domain === site))
+  if (!Object.hasOwn(windows, window) || (site && !policy.for(site))
     || !Object.hasOwn(comparisonProviders, provider) || !["all", "matched", "unmatched"].includes(matches)
     || !Number.isInteger(page) || page < 1 || page > 1000) throw new Error("Invalid reconciliation filter");
   return { window: window as keyof typeof windows, site, provider, matches, page };
@@ -65,7 +65,7 @@ export class CoverageReader {
       excludedGroups: [] as { site: string; title: string; url: string; reason: string | null }[],
       windowEnd: now,
       generatedAt: now,
-      sites: sites.map((s) => s.domain),
+      sites: policy.all().map((s) => s.domain),
       cadenceMinutes: pollInterval / 60000,
       matches: "all",
       page: 1,
@@ -172,7 +172,7 @@ export class CoverageReader {
           unparsed: list.filter((g) => g.unparsed).length,
         };
       };
-      const matrix = sites
+      const matrix = policy.all()
         .filter((s) => !site || s.domain === site)
         .map((s) => ({
           site: s.domain,

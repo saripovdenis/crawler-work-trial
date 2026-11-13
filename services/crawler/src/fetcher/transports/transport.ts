@@ -2,9 +2,9 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { domainFor } from '../../../../../packages/core/src/policy.js';
 
-// Intentionally hardcoded. All subdomains use the same transport and budget.
-import { chromeSites } from '../../../../../config/profiles.js';
-export const usesChromeProfile = (url: string) => chromeSites.has(domainFor(url) || '');
+// All subdomains use the configured domain transport and budget.
+import { policy } from '../../../../../config/site-policy.js';
+export const usesChromeProfile = (url: string) => policy.for(domainFor(url) || '')?.transport === 'chrome136';
 export const USER_AGENT = 'ExaTrialCrawler/0.1';
 
 export async function fetchResponse(url: string, headers: Record<string, string>, signal: AbortSignal, dispatch?: { transport: 'node' | 'chrome136'; start_by: string }): Promise<Response> {

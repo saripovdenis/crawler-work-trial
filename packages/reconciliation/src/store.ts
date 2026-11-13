@@ -3,7 +3,7 @@ import { ensureSchema } from "../../pg/src/schema.js";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { sites } from "../../../config/sites.js";
+import { policy } from "../../../config/site-policy.js";
 import {
   pollInterval,
   pollLookback,
@@ -39,7 +39,7 @@ export class MonitorStore {
           c.lifetime,
           !c.enabled ? "API key required" : null,
         );
-      sites.forEach((site, i) =>
+      policy.all().forEach((site, i) =>
         this.db
           .prepare(
             "INSERT OR IGNORE INTO provider_schedule VALUES (?,?,?,NULL)",
@@ -78,6 +78,7 @@ export class MonitorStore {
         )
         .all(now, now) as any[];
       for (const row of rows) {
+        if (!policy.for(row.site)?.enabled) continue;
         const daily = this.db
           .prepare(
             "SELECT coalesce(sum(quota_used),0) n FROM provider_runs WHERE provider=? AND started_at>=?",
