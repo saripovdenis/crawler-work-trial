@@ -42,8 +42,11 @@ PY
 fi
 if ! cmp -s deploy/exa-archive.service /etc/systemd/system/exa-archive.service; then
   install -m 0644 deploy/exa-archive.service /etc/systemd/system/exa-archive.service
-  systemctl daemon-reload
 fi
+install -m 0755 deploy/verify-archive.py /usr/local/sbin/verify-exa-archive
+install -m 0644 deploy/exa-archive-verify.service /etc/systemd/system/exa-archive-verify.service
+install -m 0644 deploy/exa-archive-verify.timer /etc/systemd/system/exa-archive-verify.timer
+systemctl daemon-reload
 systemctl enable --now exa-archive
 for _ in $(seq 1 30); do "$binary" -c /etc/exa-archive.toml status >/dev/null 2>&1 && break; sleep 1; done
 python3 - <<'PY'

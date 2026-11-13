@@ -192,6 +192,7 @@ if (( migrated == 1 )); then
   echo "SQLite copies kept read-only in $sqlite_archive"
 fi
 install -m 0644 release.json /var/lib/exa-crawler/deployments/current.json
+systemctl enable --now exa-archive-verify.timer
 cutover=0
 # Keep this release and the one it replaced (the rollback target); remove every
 # other directory under /opt/exa-crawler. A pruning error never fails a deploy.

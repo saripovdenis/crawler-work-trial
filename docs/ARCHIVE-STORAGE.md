@@ -60,6 +60,9 @@ switch. Conditional writes and object versions are not required by this stage.
 
 `/api/cache` includes mirror counts, pending/oldest work, errors and upload
 latency. It also includes the most recent hash-verification summary.
+`exa-archive-verify.timer` checks up to 1,000 previously unverified objects every
+five minutes with the read-only key. It reads the current deployed release from
+the root-owned release manifest and remains separate from the fetch worker.
 Run verification with the read-only key from the currently deployed directory:
 
 ```sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically verify the Garage response mirror
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=15s
+Unit=exa-archive-verify.service
+
+[Install]
+WantedBy=timers.target
