@@ -29,6 +29,11 @@ validated `policy.for()`, `policy.all()` and `policy.active()` accessors.
 Set `enabled: false` to pause a domain; deploy/restart all services to apply it.
 See [site policies, pause behavior and shared budget rules](docs/SITE-POLICY.md).
 
+Add ordered `discoverySources` to a site in `config/sites.ts` to choose its starting
+pages, feeds, sitemaps or APIs. New sources get their first attempt in that order,
+after required robots checks; later polls use the existing scheduler and budget.
+See [discovery source configuration](docs/SITE-POLICY.md#discovery-sources).
+
 ## Repository layout
 
 ```text

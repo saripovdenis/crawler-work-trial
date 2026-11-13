@@ -1,22 +1,3 @@
-// Exploration seeds, never external article URLs. Every fetch still passes robots
-// and the existing shared-domain budget. These cover publishers' main news desks.
-export const discoverySeeds = [
-  { domain: 'sina.com.cn', url: 'https://finance.sina.com.cn/', kind: 'html' },
-  { domain: 'sina.com.cn', url: 'https://news.sina.com.cn/', kind: 'html' },
-  // Rolling lists linked from the archived publisher homepages.
-  // The old index returns a cached JavaScript redirect to this current list.
-  { domain: 'sina.com.cn', url: 'https://finance.sina.com.cn/roll/c/51894.shtml', kind: 'html' },
-  { domain: 'sina.com.cn', url: 'https://news.sina.com.cn/airoll/index.shtml', kind: 'html' },
-  { domain: 'indiatimes.com', url: 'https://timesofindia.indiatimes.com/', kind: 'html' },
-  { domain: 'indiatimes.com', url: 'https://economictimes.indiatimes.com/', kind: 'html' },
-  // Current-news lists linked from the archived publisher homepages.
-  { domain: 'hurriyet.com.tr', url: 'https://www.hurriyet.com.tr/son-dakika-haberleri/', kind: 'html' },
-  { domain: 'eastmoney.com', url: 'http://finance.eastmoney.com/yaowen.html', kind: 'html' },
-  { domain: 'eastmoney.com', url: 'http://finance.eastmoney.com/news/cgnjj.html', kind: 'html' },
-  // Advertised in BBC's already archived robots.txt, previously beyond first six.
-  { domain: 'bbc.com', url: 'https://www.bbc.com/sitemaps/https-index-com-news.xml', kind: 'sitemap' },
-] as const;
-
 // Host keys are checked against the site policies at startup.
 export const sourceHostPriorities: Record<string, (path: string) => number | undefined> = {
   'www.hurriyet.com.tr': path => path === '/son-dakika-haberleri/' ? 100 : undefined,
@@ -50,6 +31,7 @@ export function sourcePriority(url: string, kind: string, now = Date.now()): num
   if(live) return 100;
   if (/\b20\d\d[-/]/i.test(path)) return -100;
   if (kind === 'feed') return 80;
+  if (kind.startsWith('api:')) return 100;
   if (kind === 'html') return 60;
   return 0;
 }

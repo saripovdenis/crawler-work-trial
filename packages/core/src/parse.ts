@@ -6,6 +6,7 @@ import { dateIso, normalizeUrl, domainFor, isKnownListingUrl } from './policy.js
 import { sourcePriority } from '../../../config/discovery.js';
 import { publicationProfiles, arcContentHosts, articleBodyProfiles } from '../../../config/profiles.js';
 import type { Article } from './types.js';
+import { discoverApi } from './discovery-api.js';
 
 export type Found = { url: string; published: string | null };
 export type Source = { url: string; kind: string };
@@ -104,6 +105,7 @@ export function publisherStoryFromHtml(body: string, url: string) {
 }
 
 export function discover(body: string, url: string, kind: string) {
+  if (kind.startsWith('api:')) return discoverApi(body, url, kind);
   const articles: Found[] = [];
   const sources: Source[] = [];
   let partial = false;
