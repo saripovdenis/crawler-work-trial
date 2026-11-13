@@ -44,9 +44,21 @@ export class Scheduler {
   private readonly domainParams = this.domains.map(() => '?').join(',') || 'NULL';
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number; dated: number; fresh: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) {
-    migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
+    migrateDurable(db); this.resetSeedRedirects(); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
     this.archives=createBodyStore(directory);this.aliases=new ArticleAliases(db);
     this.reuse.aliasesRecorded=this.aliases.backfill();this.refreshSourceQuality();
+  }
+  private resetSeedRedirects() {
+    this.transaction(()=> {
+      for(const site of policy.all()) for(const seed of site.seeds ?? []) {
+        this.run('DELETE FROM meta WHERE key=?','source-final:'+seed.url);
+        // Only completed poll cycles can be reset. Leases, pending parsing and
+        // redirect hops must retain the URL of the response they belong to.
+        const changed=this.run(`UPDATE crawl_tasks SET current_url=url,headers='{}'
+          WHERE url=? AND purpose='discovery' AND state='ready' AND hops=0 AND current_url<>url`,seed.url).changes;
+        if(changed) this.run('UPDATE sources SET etag=NULL,modified=NULL WHERE url=?',seed.url);
+      }
+    });
   }
   // A link that has waited this long since it was first seen can no longer be
   // a fresh article. Retire it as 'stale' without spending a request; the row
@@ -403,7 +415,9 @@ export class Scheduler {
     }
     if(task.purpose==='discovery') {
       const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
-      if(/HTTP (404|410)/.test(error)) this.run('DELETE FROM meta WHERE key=?','source-final:'+task.url);
+      const seed=configuredSource(task.url);
+      if(seed || /HTTP (404|410)/.test(error)) this.run('DELETE FROM meta WHERE key=?','source-final:'+task.url);
+      if(seed && task.current_url!==task.url) this.run('UPDATE sources SET etag=NULL,modified=NULL WHERE url=?',task.url);
       const permanent=/Response exceeds 5 MiB|Not a supported feed or sitemap/.test(error);
       const due=now+Math.max(configuredSource(source.url)?.pollEveryMs ?? 0,permanent?6*3600_000:denied?3600_000:Math.min(3600_000,30_000*2**source.errors));
       this.run('UPDATE sources SET errors=errors+1,next_poll=?,last_error=? WHERE url=?',due,error,task.url);
@@ -680,12 +694,17 @@ export class Scheduler {
       }
       const interval=Math.max(30_000,Math.ceil(180_000/site.requestsPerMinute));
       const due=Math.max(now,observed+this.sourceInterval(source,interval*(source.kind==='sitemap'?2:1)));
+      const seed=configuredSource(task.url);
+      const nextUrl=seed ? task.url : task.current_url;
+      // Validators belong to the fetched URL, not a different redirect origin.
+      const clearValidators=partial || nextUrl!==task.current_url;
       // Do not cache a partial response: next poll must request the complete body.
-      this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial discovery response: only valid items processed':null,due,count,partial?null:(value.headers.etag??source.etag),partial?null:(value.headers['last-modified']??source.modified),task.url);
-      this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','source-final:'+task.url,task.current_url);
+      this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial discovery response: only valid items processed':null,due,count,clearValidators?null:(value.headers.etag??source.etag),clearValidators?null:(value.headers['last-modified']??source.modified),task.url);
+      if(seed) this.run('DELETE FROM meta WHERE key=?','source-final:'+task.url);
+      else this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','source-final:'+task.url,task.current_url);
       if(!partial && parsed?.mappingKey)
         this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','mapping:'+task.url,parsed.mappingKey);
-      this.run("UPDATE crawl_tasks SET state='ready',hops=0,next_crawl_at=? WHERE id=?",due,task.id);
+      this.run("UPDATE crawl_tasks SET state='ready',hops=0,next_crawl_at=?,current_url=? WHERE id=?",due,nextUrl,task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=0 WHERE domain=?',site.domain);
     } else {
       if(status!==200) {this.fail(task,`HTTP ${status}`);return;}

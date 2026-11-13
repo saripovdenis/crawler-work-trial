@@ -17,8 +17,8 @@ export const siteDefaults: readonly SiteConfig[] = [
   { domain: 'indiatimes.com', requestsPerMinute: 15, seeds: [
     { kind: 'rss', url: 'https://economictimes.indiatimes.com/news/latest-news/rssfeeds/20989204.cms', pollEveryMs: 60_000 },
     { kind: 'sitemap', url: 'https://timesofindia.indiatimes.com/staticsitemap/toi/news/sitemap-today-1.xml', pollEveryMs: 120_000 },
-    { kind: 'sitemap', url: 'https://timesofindia.indiatimes.com/sitemap/today', pollEveryMs: 120_000 },
-    { kind: 'sitemap', url: 'https://economictimes.indiatimes.com/etstatic/sitemaps/et/news/sitemap-today.xml', pollEveryMs: 120_000 },
+    { kind: 'sitemap', url: 'https://timesofindia.indiatimes.com/sitemap/today', pollEveryMs: 60_000 },
+    { kind: 'sitemap', url: 'https://economictimes.indiatimes.com/etstatic/sitemaps/et/news/sitemap-today.xml', pollEveryMs: 60_000 },
     { kind: 'html', url: 'https://timesofindia.indiatimes.com/', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://economictimes.indiatimes.com/', pollEveryMs: 120_000 },
   ] },
