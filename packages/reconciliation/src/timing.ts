@@ -33,7 +33,7 @@ export function fetchedArticles(db: DatabaseSync, articles: Row[], site: string,
     }
     let finished: number | null = null;
     if (row.attempt_id) {
-      try { finished = date(JSON.parse(row.completion).finished_at); } catch { /* unknown receipt */ }
+      try { const receipt=JSON.parse(row.completion); finished = date(receipt.fetch_finished_at ?? receipt.finished_at); } catch { /* unknown receipt */ }
     } else finished = Number(row.finished);
     if (finished !== null && (!Number.isFinite(finished) || finished > Number(row.finished))) finished = null;
     found.set(key, {

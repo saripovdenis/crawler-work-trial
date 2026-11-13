@@ -1,21 +1,20 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { gunzipSync } from 'node:zlib';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { sites } from '../../../../config/sites.js';
 import { chromeSites } from '../../../../config/profiles.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
-import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
+import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, fetchFinishedAt, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
 import { reserveSlot, slotDue } from './budget.js';
 import { ArchiveParser, type ParseResult } from './parse-worker.js';
 import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
 import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
 import { PARSER_VERSION } from '../../../../packages/core/src/parser-version.js';
 import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
-import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
+import { createBodyStore, type BodyStore } from '../../../../packages/protocol/src/body-store.js';
 import { elapsedMs, timingEnabled, timingLog } from '../../../../packages/protocol/src/timing.js';
 const UA = 'ExaTrialCrawler/0.1';
 const STALE_LINK_MS = 3 * 3600_000;
@@ -31,7 +30,7 @@ export class Scheduler {
   private parser: ArchiveParser;
   private robotsCache: RobotsCache;
   private aliases:ArticleAliases;
-  private archives:ArchiveStore;
+  private archives:BodyStore;
   private processingJob?: Promise<void>;
   private articlesSinceDiscovery = 3;
   private articleParses = 0;
@@ -44,7 +43,7 @@ export class Scheduler {
   private sourceQuality = new Map<string, { domain: string; polls: number; unchanged: number; newArticles: number; dated: number; fresh: number }>();
   constructor(readonly db: DatabaseSync, readonly directory: string, readonly clock = Date.now) {
     migrateDurable(db); this.parser=new ArchiveParser(directory); this.robotsCache=new RobotsCache(db);
-    this.archives=new ArchiveStore(directory);this.aliases=new ArticleAliases(db);
+    this.archives=createBodyStore(directory);this.aliases=new ArticleAliases(db);
     this.reuse.aliasesRecorded=this.aliases.backfill();this.refreshSourceQuality();
   }
   // A link that has waited this long since it was first seen can no longer be
@@ -268,7 +267,13 @@ export class Scheduler {
         || value.response_ref!==`snapshots/${value.body_hash}.gz`)) throw new ContractError('Successful response requires archive');
       if(value.started_at && Date.parse(value.started_at)>a.start_by) throw new ContractError('Dispatch after deadline');
       const now=this.clock();
-      this.run('UPDATE requests SET finished=?,status=?,headers=?,body_hash=?,error=? WHERE id=?',now,value.status,JSON.stringify(value.headers),value.body_hash,value.error,a.request_id);
+      if (value.fetch_finished_at != null && (typeof value.fetch_finished_at !== 'string'
+        || !value.fetch_finished_at.endsWith('Z') || !Number.isFinite(Date.parse(value.fetch_finished_at))
+        || !value.started_at || Date.parse(value.fetch_finished_at)<Date.parse(value.started_at)
+        || Date.parse(value.fetch_finished_at)>Date.parse(value.finished_at)
+        || Date.parse(value.fetch_finished_at)>now)) throw new ContractError('Invalid fetch completion time');
+      const finished=value.fetch_finished_at ? Date.parse(value.fetch_finished_at) : now;
+      this.run('UPDATE requests SET finished=?,status=?,headers=?,body_hash=?,error=? WHERE id=?',finished,value.status,JSON.stringify(value.headers),value.body_hash,value.error,a.request_id);
       if ([429,503].includes(value.status!)) {
         const retry=value.headers['retry-after']||'300';
         const until=/^\d+$/.test(retry)?now+Number(retry)*1000:Date.parse(retry);
@@ -392,7 +397,7 @@ export class Scheduler {
   private async mapDiscoveryChunks(task: Row, value: Completion, found: ReturnType<typeof discover>) {
     const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
     const started=this.one('SELECT started FROM sites WHERE domain=?',task.domain)!.started;
-    const observed=Date.parse(value.finished_at);
+    const observed=Date.parse(fetchFinishedAt(value));
     for(let offset=0;offset<found.articles.length;offset+=100) {
       if(this.closing) return false;
       this.transaction(()=> {
@@ -407,8 +412,7 @@ export class Scheduler {
     return true;
   }
   private readBody(value: Completion) {
-    const bytes=gunzipSync(readFileSync(resolve(this.directory,value.response_ref!)),{maxOutputLength:MAX_RESPONSE_BYTES});
-    if(bytes.length!==value.bytes||createHash('sha256').update(bytes).digest('hex')!==value.body_hash) throw new Error('Archive integrity mismatch');
+    const bytes=this.archives.readVerified(value.body_hash!,value.bytes);
     const charset=value.headers['content-type']?.match(/charset=["']?([^;"'\s]+)/i)?.[1]
       || bytes.subarray(0,2048).toString('ascii').match(/charset\s*=\s*["']?([\w-]+)/i)?.[1] || 'utf-8';
     try { return new TextDecoder(charset).decode(bytes); } catch { return bytes.toString('utf8'); }
@@ -519,6 +523,7 @@ export class Scheduler {
         durations[phase+'_ms']=elapsedMs(phaseStarted);
         timingLog('processing',{attempt_id:a.attempt_id,request_id:a.request_id,domain:a.domain,purpose:task?.purpose,
           failed,completed,failed_phase:failed?phase:null,queue_wait_ms:value?dequeuedAt-Date.parse(value.finished_at):null,
+          fetch_to_parse_ms:value?dequeuedAt-Date.parse(fetchFinishedAt(value)):null,
           selection_ms,...durations,total_ms:elapsedMs(started),extraction_cache_hit:parsed?.cache?.hit,
           ...parsed?.timings});
       }
@@ -560,7 +565,7 @@ export class Scheduler {
       let next:string; try {next=new URL(value.headers.location,task.current_url).href;} catch {this.fail(task,'Invalid redirect');return;}
       if(!domainFor(next)) {this.fail(task,'URL is outside configured domains',true);return;}
       if(task.purpose==='article' && requestId && [301,308].includes(status))
-        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,next,'redirect',requestId,Date.parse(value.finished_at));
+        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,next,'redirect',requestId,Date.parse(fetchFinishedAt(value)));
       this.run("UPDATE crawl_tasks SET state='ready',current_url=?,hops=hops+1,next_crawl_at=? WHERE id=?",next,now,task.id);
       return;
     }
@@ -602,7 +607,7 @@ export class Scheduler {
     if(task.purpose==='discovery') {
       if(status!==200 && status!==304) {this.fail(task,`HTTP ${status}`);return;}
       const source=this.one('SELECT * FROM sources WHERE url=?',task.url)!;
-      const observed=Date.parse(value.finished_at);
+      const observed=Date.parse(fetchFinishedAt(value));
       let count=0, partial=false;
       if(status===200) {
         const found=parsed?.kind==='discovery'?parsed.found:discover(body,task.current_url,source.kind);
@@ -645,7 +650,7 @@ export class Scheduler {
         }
       }
       if(requestId && classification!=='incomplete')
-        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,article.canonicalUrl,'canonical',requestId,Date.parse(value.finished_at));
+        this.reuse.aliasesRecorded+=this.aliases.remember(task.current_url,article.canonicalUrl,'canonical',requestId,Date.parse(fetchFinishedAt(value)));
       this.run("UPDATE candidates SET state='done',attempts=attempts+?,last_error=NULL WHERE url=?",replayed?0:1,task.url);
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
       this.run('UPDATE scheduler_domains SET articles_since_poll=articles_since_poll+1 WHERE domain=?',site.domain);

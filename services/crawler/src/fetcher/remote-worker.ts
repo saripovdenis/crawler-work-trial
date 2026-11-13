@@ -7,11 +7,12 @@ import { atomicWrite, acquireLock } from '../../../../packages/protocol/src/file
 import { DISPATCH_MS, MAX_RESPONSE_BYTES, type Claim, type Assignment, type Completion } from '../../../../packages/protocol/src/index.js';
 import { elapsedMs, timingLog } from '../../../../packages/protocol/src/timing.js';
 import { fetchResponse } from './transports/transport.js';
-import { ArchiveStore } from '../../../../packages/protocol/src/archives.js';
-const stores=new Map<string,ArchiveStore>();
+import { createBodyStore, type BodyStore } from '../../../../packages/protocol/src/body-store.js';
+import { ArchiveMirror } from '../../../../packages/protocol/src/archive-mirror.js';
+const stores=new Map<string,BodyStore>();
 const archiveStore=(directory:string)=> {
   let store=stores.get(directory);
-  if(!store) {store=new ArchiveStore(directory);stores.set(directory,store);}
+  if(!store) {store=createBodyStore(directory);stores.set(directory,store);}
   return store;
 };
 type Receipt={claim_id:string; task?:Assignment; dispatched?:boolean; completion?:Completion};
@@ -37,6 +38,7 @@ export async function execute(task: Assignment, directory: string): Promise<Comp
         chunks.push(value);
       }
     }
+    result.fetch_finished_at=new Date().toISOString();
     next('decode_hash');
     let bytes=Buffer.concat(chunks);
     if(bytes[0]===0x1f&&bytes[1]===0x8b) bytes=gunzipSync(bytes,{maxOutputLength:task.max_response_bytes});
@@ -62,6 +64,7 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>20) throw new Error('Invalid concurrency');
   mkdirSync(resolve(directory,'receipts'),{recursive:true});
   const release=acquireLock(resolve(directory,'receipts','fetch-worker.pid'));
+  const mirror=process.env.ARCHIVE_MIRROR==='1' ? new ArchiveMirror(directory) : undefined;
   const store=archiveStore(directory),metricsPath=resolve(directory,'receipts','archive-cache-metrics.json');
   try {
     const previous=JSON.parse(readFileSync(metricsPath,'utf8'));
@@ -118,6 +121,11 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
           }
           saveReceipt(path,receipt,'completed');
         }
+        // Upload retries run independently and never hold a publisher slot.
+        if(receipt.completion.body_hash) {
+          try {mirror?.enqueue(receipt.completion.body_hash);}
+          catch(error) {console.error('Could not enqueue optional archive mirror:',String(error));}
+        }
         const started=performance.now();
         let acknowledged=false;
         try {await post(`/internal/attempts/${receipt.task.attempt_id}/complete`,receipt.completion);acknowledged=true;}
@@ -125,5 +133,5 @@ export async function runWorker(directory: string, schedulerUrl: string, concurr
         unlinkSync(path);
       } catch(e) {console.error('Worker will retry receipt:',String(e));await sleep(1000);}
     }
-  }));} finally {clearInterval(metricsTimer);report();release();}
+  }));} finally {await mirror?.close();clearInterval(metricsTimer);report();release();}
 }

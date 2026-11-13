@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { ArchiveStore } from '../../protocol/src/archives.js';
+import { createBodyStore, type BodyStore } from '../../protocol/src/body-store.js';
 import { atomicWrite } from '../../protocol/src/files.js';
 import { MAX_RESPONSE_BYTES } from '../../protocol/src/index.js';
 import { LruCache } from './lru.js';
@@ -15,11 +15,11 @@ type Extraction={kind:'discovery';found:ReturnType<typeof discover>}|{kind:'arti
 export type ParseResult=Extraction & {cache?:{key:string;hit:boolean};mappingKey?:string};
 export class CachedExtractor {
   private memory=new LruCache<string,Extraction>(128,16*1024*1024);
-  private archives:ArchiveStore;
+  private archives:BodyStore;
   private cacheDirectory:string;
   readonly metrics={memoryHits:0,diskHits:0,misses:0,avoidedParses:0,partialBypasses:0,readErrors:0,writeErrors:0,parseMs:0};
   constructor(readonly directory:string) {
-    this.archives=new ArchiveStore(directory);
+    this.archives=createBodyStore(directory);
     this.cacheDirectory=resolve(directory,'snapshots','parsed');
     mkdirSync(this.cacheDirectory,{recursive:true});
   }

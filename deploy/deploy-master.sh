@@ -83,6 +83,7 @@ python3 -m venv .venv
 .venv/bin/python -c 'from curl_cffi import requests; print("Python transport import OK")'
 test -s apps/dashboard/dist/index.html
 test -s /etc/exa-reconciler.env
+bash deploy/install-archive.sh
 mkdir -p deploy/previous-units deploy/rendered
 for unit in "${units[@]}"; do
   cp "/etc/systemd/system/$unit.service" "deploy/previous-units/$unit.service"
@@ -105,6 +106,9 @@ for unit in previous.glob('*.service'):
         if timing_env not in text:
             if '[Service]\n' not in text: raise RuntimeError(f'No Service section in {unit}')
             text=text.replace('[Service]\n',f'[Service]\n{timing_env}\n',1)
+    if unit.stem == 'exa-fetch-worker':
+        archive_env='EnvironmentFile=-/etc/exa-archive-writer.env'
+        if archive_env not in text: text=text.replace('[Service]\n',f'[Service]\n{archive_env}\n',1)
     if unit.stem in limits:
         # These three services use PostgreSQL over the local socket. Their old
         # memory limits were sized for a 2 GB machine.

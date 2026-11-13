@@ -8,7 +8,9 @@ const clientImport = /(?:from\s*|import\s*\(|require\s*\()\s*['"](?:node:)?(?:ht
 const service = path => path.match(/^services\/([^/]+)\//)?.[1];
 export function violationsFor(path, source) {
   const errors = [];
-  const transport = (path.startsWith('services/crawler/src/fetcher/') || path === 'services/monitor/src/client.ts');
+  const storage = path === 'packages/protocol/src/storage-client.ts';
+  const transport = (path.startsWith('services/crawler/src/fetcher/') || path === 'services/monitor/src/client.ts' || storage);
+  if (!storage && /['"]@aws-sdk\/[^'"]+['"]/.test(source)) errors.push(`${path}: S3 SDK access outside the restricted storage client`);
   const python = path === 'services/fetcher-impersonate/cffi-fetch.py';
   const pythonClient = /(?:^|\n)\s*(?:from\s+(?:curl_cffi|urllib|requests|httpx|aiohttp)\b|import\s+(?:requests|httpx|aiohttp|urllib)\b)/;
   if (!transport && !python && (httpCall.test(source) || clientImport.test(source) || pythonClient.test(source))) errors.push(`${path}: outbound HTTP outside the fetcher`);

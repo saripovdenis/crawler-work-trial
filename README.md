@@ -10,16 +10,18 @@ TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler ne
 ## Current runtime: durable scheduler + fetch worker
 
 The crawler now has two Node processes. The dashboard and external reconciliation monitor run separately.
-The scheduler owns SQLite and budgets; an in-process worker thread parses archives. The fetch worker claims one-request leases
+The scheduler owns PostgreSQL writes and budgets; an in-process worker thread parses archives. The fetch worker claims one-request leases
 on loopback HTTP, archives responses and persists retryable receipts. Python stays a
 transport subprocess. See [protocol, recovery and deployment](docs/SCHEDULER.md).
 
 ```sh
 npm run scheduler  # terminal 1; existing CRAWLER_DATA_DIR
-npm run worker     # terminal 2; same data directory, no SQLite access
+npm run worker     # terminal 2; same data directory, no database access
 ```
 
 `npm run dev` starts the scheduler only; run the worker separately.
+The response archive currently uses local reads plus an asynchronous Garage mirror.
+See [storage rollout, validation and rollback](docs/ARCHIVE-STORAGE.md).
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
 ## Repository layout

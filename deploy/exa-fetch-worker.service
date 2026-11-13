@@ -15,6 +15,7 @@ Environment=CRAWLER_DATA_DIR=/var/lib/exa-crawler/data
 Environment=CRAWLER_PYTHON=/opt/exa-crawler/layout-v1/.venv/bin/python
 Environment=SCHEDULER_URL=http://127.0.0.1:4319
 Environment=FETCH_CONCURRENCY=4
+EnvironmentFile=-/etc/exa-archive-writer.env
 ExecStart=/usr/local/bin/node --import tsx services/crawler/src/fetcher/index.ts
 Restart=on-failure
 RestartSec=5

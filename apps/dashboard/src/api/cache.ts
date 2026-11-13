@@ -102,9 +102,11 @@ export class DashboardCache {
   }
   async metrics() {
     const load=async(path:string)=>{try{return JSON.parse(await readFile(resolve(this.directory,path),'utf8'));}catch{return null;}};
-    const [crawler,archives]=await Promise.all([load('cache-metrics.json'),load('receipts/archive-cache-metrics.json')]);
+    const [crawler,archives,mirror,verification]=await Promise.all([load('cache-metrics.json'),load('receipts/archive-cache-metrics.json'),
+      load('receipts/archive-mirror-metrics.json'),load('receipts/archive-mirror-verification.json')]);
+    if(verification)delete verification.verifiedHashes;
     return {generatedAt:Date.now(),dashboard:{...this.counts,methods:this.methods,entries:this.snapshots.size,
-      bytes:this.snapshots.byteSize,evictions:this.snapshots.evictions,refreshes:this.inflight.size,queued:this.queue.length},crawler,archives};
+      bytes:this.snapshots.byteSize,evictions:this.snapshots.evictions,refreshes:this.inflight.size,queued:this.queue.length},crawler,archives,mirror,verification};
   }
   async close() {
     this.closed=true;

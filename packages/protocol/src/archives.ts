@@ -5,8 +5,9 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { LruCache } from '../../core/src/lru.js';
 import { atomicWrite } from './files.js';
 import { MAX_RESPONSE_BYTES } from './index.js';
+import type { BodyStore } from './body-store.js';
 
-export class ArchiveStore {
+export class ArchiveStore implements BodyStore {
   private verified=new LruCache<string,string>(4096);
   readonly metrics={reused:0,written:0,repaired:0,avoidedBytes:0};
   constructor(readonly directory:string) {}
@@ -24,13 +25,17 @@ export class ArchiveStore {
       this.readVerified(hash,expectedBytes);return true;
     } catch {this.verified.delete(hash);return false;}
   }
-  readVerified(hash:string,expectedBytes:number):Buffer {
+  readVerified(hash:string,expectedBytes?:number):Buffer {
     if(!/^[a-f0-9]{64}$/.test(hash))throw new Error('Invalid archive reference');
     const path=resolve(this.directory,'snapshots',hash+'.gz'),signature=this.signature(path)+':'+expectedBytes;
     const body=gunzipSync(readFileSync(path),{maxOutputLength:MAX_RESPONSE_BYTES});
-    if(body.length!==expectedBytes || createHash('sha256').update(body).digest('hex')!==hash)
+    if((expectedBytes!==undefined && body.length!==expectedBytes) || createHash('sha256').update(body).digest('hex')!==hash)
       throw new Error('Archive integrity mismatch');
     this.verified.set(hash,signature);return body;
+  }
+  readCompressed(hash:string):Buffer {
+    this.readVerified(hash);
+    return readFileSync(resolve(this.directory,'snapshots',hash+'.gz'));
   }
   store(body:Buffer,hash=createHash('sha256').update(body).digest('hex')) {
     if(body.length>MAX_RESPONSE_BYTES || !/^[a-f0-9]{64}$/.test(hash))throw new Error('Invalid archive');

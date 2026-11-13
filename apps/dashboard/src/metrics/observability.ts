@@ -1,6 +1,6 @@
 import { DatabaseSync } from "../../../../packages/pg/src/sync.js";
 import { readFile } from "node:fs/promises";
-import { gunzipSync } from "node:zlib";
+import { createBodyStore } from "../../../../packages/protocol/src/body-store.js";
 import { resolve } from "node:path";
 import { sites } from "../../../../config/sites.js";
 import { LruCache } from "../../../../packages/core/src/lru.js";
@@ -247,7 +247,7 @@ export class Observatory {
       const key=JSON.stringify([body_hash,row.url,kind,charset,PARSER_VERSION,Math.floor(Date.now()/86400000)]);
       const cached=this.details.get(key);
       if(cached)return {...detail,...cached};
-      const bytes=gunzipSync(await readFile(resolve(this.directory,"snapshots",body_hash+".gz")),{maxOutputLength:5*1024*1024});
+      const bytes=createBodyStore(this.directory).readVerified(body_hash);
       let body;
       try {body=new TextDecoder(charset).decode(bytes);} catch {body=bytes.toString("utf8");}
       const { discover }=await import("../../../../packages/core/src/parse.js");

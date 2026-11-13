@@ -1,0 +1,25 @@
+[Unit]
+Description=Garage response archive (single-node trial)
+After=local-fs.target
+RequiresMountsFor=/var/lib/exa-crawler/garage
+
+[Service]
+User=exa-archive
+Group=exa-archive
+ExecStart=/usr/local/lib/garage/garage-2.5.0 -c /etc/exa-archive.toml server --single-node
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/exa-crawler/garage
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -10,6 +10,10 @@ export type Assignment = {
 export type Claim = { task: Assignment | null; retry_after_ms?: number };
 export type Completion = {
   lease_token: string; started_at: string | null; finished_at: string;
+  fetch_finished_at?: string | null; // End of body read; absent on legacy receipts.
   status: number | null; headers: Record<string,string>; body_hash: string | null;
   response_ref: string | null; bytes: number; error: string | null;
 };
+
+/** Legacy receipts include archive time; keep that evidence instead of inventing precision. */
+export const fetchFinishedAt = (value: Completion): string => value.fetch_finished_at ?? value.finished_at;

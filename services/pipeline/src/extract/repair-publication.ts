@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
+import { createBodyStore } from '../../../../packages/protocol/src/body-store.js';
 import { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { load } from 'cheerio';
 import { publisherPublication, parseArticle, publisherStoryFromHtml } from '../../../../packages/core/src/parse.js';
@@ -22,6 +22,7 @@ export type RepairOptions = {
 
 /** Repair missing publisher dates and incomplete Chosun text from archived article fetches. */
 export function repairPublication(options: RepairOptions) {
+  const bodies=createBodyStore(options.dataDirectory);
   const now = options.now ?? Date.now(), windowMs = options.windowMs ?? 3 * 3600_000;
   const limit = options.limit ?? 200;
   const cursor=options.cursor?JSON.parse(Buffer.from(options.cursor,'base64url').toString('utf8')):{fetched:now+1,canonicalUrl:''};
@@ -79,8 +80,7 @@ export function repairPublication(options: RepairOptions) {
       if (domainFor(request.url)!==row.domain) { skip('unverified_response_domain'); continue; }
       let body: string;
       try {
-        const bytes=gunzipSync(readFileSync(resolve(options.dataDirectory,'snapshots',request.body_hash+'.gz')),{maxOutputLength:5*1024*1024});
-        if (createHash('sha256').update(bytes).digest('hex')!==request.body_hash) { skip('archive_hash_mismatch'); continue; }
+        const bytes=bodies.readVerified(request.body_hash);
         const headers=JSON.parse(request.headers || '{}');
         const charset=headers['content-type']?.match(/charset=["']?([^;"'\s]+)/i)?.[1]
           || bytes.subarray(0,2048).toString('ascii').match(/charset\s*=\s*["']?([\w-]+)/i)?.[1] || 'utf-8';
