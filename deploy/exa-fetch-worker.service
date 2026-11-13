@@ -1,5 +1,5 @@
 [Unit]
-Description=Exa durable HTTP fetch worker
+Description=Exa durable Python HTTP fetch worker
 After=network-online.target exa-crawler.service
 Wants=network-online.target exa-crawler.service
 RequiresMountsFor=/var/lib/exa-crawler
@@ -16,7 +16,7 @@ Environment=CRAWLER_PYTHON=/opt/exa-crawler/layout-v1/.venv/bin/python
 Environment=SCHEDULER_URL=http://127.0.0.1:4319
 Environment=FETCH_CONCURRENCY=4
 EnvironmentFile=-/etc/exa-archive-writer.env
-ExecStart=/usr/local/bin/node --import tsx services/crawler/src/fetcher/index.ts
+ExecStart=/opt/exa-crawler/layout-v1/.venv/bin/python services/fetcher-impersonate/worker.py
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=40

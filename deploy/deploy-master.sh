@@ -81,6 +81,7 @@ NODE_OPTIONS=--max-old-space-size=512 npm run dashboard:build
 python3 -m venv .venv
 .venv/bin/pip install --disable-pip-version-check -r services/fetcher-impersonate/requirements.txt
 .venv/bin/python -c 'from curl_cffi import requests; print("Python transport import OK")'
+.venv/bin/python -B services/fetcher-impersonate/worker.py --check
 test -s apps/dashboard/dist/index.html
 test -s /etc/exa-reconciler.env
 bash deploy/install-archive.sh
@@ -109,6 +110,9 @@ for unit in previous.glob('*.service'):
     if unit.stem == 'exa-fetch-worker':
         archive_env='EnvironmentFile=-/etc/exa-archive-writer.env'
         if archive_env not in text: text=text.replace('[Service]\n',f'[Service]\n{archive_env}\n',1)
+        # Replace the runtime as one normal, serialized four-service release.
+        text,count=re.subn(r'^ExecStart=.*$',f'ExecStart={release}/.venv/bin/python services/fetcher-impersonate/worker.py',text,flags=re.M)
+        if count != 1: raise RuntimeError('Expected one fetch worker ExecStart')
     if unit.stem in limits:
         # These three services use PostgreSQL over the local socket. Their old
         # memory limits were sized for a 2 GB machine.

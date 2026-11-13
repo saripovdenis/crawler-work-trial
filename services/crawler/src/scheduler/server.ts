@@ -1,6 +1,9 @@
 import { createServer } from 'node:http';
 import { Scheduler, ContractError } from './durable.js';
 import { elapsedMs, timingLog } from '../../../../packages/protocol/src/timing.js';
+import { policy } from '../../../../config/site-policy.js';
+import { fetchProfiles } from '../../../../config/profiles.js';
+import { DISPATCH_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS } from '../../../../packages/protocol/src/index.js';
 export function schedulerServer(scheduler: Scheduler) {
   const server=createServer(async(req,res)=> {
     res.setHeader('Content-Type','application/json');
@@ -9,6 +12,12 @@ export function schedulerServer(scheduler: Scheduler) {
     let details:Record<string,unknown>|undefined;
     try {
       if(req.method==='GET'&&req.url==='/internal/health') {res.end('{"ok":true}');return;}
+      if(req.method==='GET'&&req.url==='/internal/worker-config') {
+        res.end(JSON.stringify({version:1,sites:policy.all().map(({domain,enabled})=>({domain,enabled})),
+          legacy_profiles:{node:fetchProfiles.crawler,chrome136:fetchProfiles.chrome},
+          limits:{timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,dispatch_ms:DISPATCH_MS}}));
+        return;
+      }
       if(req.method!=='POST') throw new ContractError('Method not allowed',405);
       let body='';
       for await(const chunk of req) { body+=chunk; if(Buffer.byteLength(body)>65536) throw new ContractError('Body too large',413); }

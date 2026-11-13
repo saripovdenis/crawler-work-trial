@@ -9,10 +9,10 @@ TypeScript / Node.js 24 crawler for the 20 configured news sites. The crawler ne
 
 ## Current runtime: durable scheduler + fetch worker
 
-The crawler now has two Node processes. The dashboard and external reconciliation monitor run separately.
+The Node scheduler and Python fetch worker are separate processes. The dashboard and external reconciliation monitor run separately.
 The scheduler owns PostgreSQL writes and budgets; an in-process worker thread parses archives. The fetch worker claims one-request leases
-on loopback HTTP, archives responses and persists retryable receipts. Python stays a
-transport subprocess. See [protocol, recovery and deployment](docs/SCHEDULER.md).
+on loopback HTTP, archives responses and persists retryable receipts. The complete
+fetch worker runs in Python using curl_cffi, including recovery and archive mirroring. See [protocol, recovery and deployment](docs/SCHEDULER.md).
 
 ```sh
 npm run scheduler  # terminal 1; existing CRAWLER_DATA_DIR
@@ -24,8 +24,10 @@ The response archive currently uses local reads plus an asynchronous Garage mirr
 See [storage rollout, validation and rollback](docs/ARCHIVE-STORAGE.md).
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
-Site limits, enabled flags and transports live in `config/sites.ts`, behind the
+Site limits, enabled flags, discovery sources and named profile selections live in `config/sites.ts`, behind the
 validated `policy.for()`, `policy.all()` and `policy.active()` accessors.
+`config/profiles.ts` defines JSON-compatible fetch and extraction profiles. All
+publisher HTTP uses Python curl_cffi; no per-site Node transport is selected.
 Set `enabled: false` to pause a domain; deploy/restart all services to apply it.
 See [site policies, pause behavior and shared budget rules](docs/SITE-POLICY.md).
 
@@ -40,9 +42,8 @@ See [discovery source configuration](docs/SITE-POLICY.md#discovery-sources).
 apps/dashboard/src/{pages,api,metrics}  # UI + read-only API, one Node process
 services/crawler/src/
   scheduler/                          # HTTP coordinator, leases, budgets, pipeline
-  fetcher/                             # separate HTTP worker and transports/
 services/monitor/src/                # external provider polls; no publisher HTTP
-services/fetcher-impersonate/          # Python one-request child, requirements.txt
+services/fetcher-impersonate/          # Python worker, HTTP clients, archives, mirroring
 services/pipeline/src/extract/         # publication-date repair tool, no daemon
 packages/core/src/                    # shared pure parsing, policy, types
 packages/reconciliation/src/          # provider storage, matching, audit inbox
@@ -59,6 +60,9 @@ package remain; no workspace framework was added.
 ```sh
 npm ci
 npm --prefix apps/dashboard ci
+python3 -m venv .venv
+.venv/bin/pip install -r services/fetcher-impersonate/requirements.txt
+export CRAWLER_PYTHON="$PWD/.venv/bin/python"
 npm run dashboard:build
 CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api # UI + API on 127.0.0.1:4318
 npm run dev                                       # scheduler + archive parsing thread
@@ -67,7 +71,7 @@ npm run worker                                    # separate fetch worker
 
 The pipeline stays inside the scheduler process; CPU-heavy parsing runs in a built-in worker thread. Shared parsing lives in `packages/core`
 because the dashboard also inspects saved responses. No service imports another service's
-source. Python is an on-demand child, never a daemon. Health remains `/api/health`.
+source. Python is the `exa-fetch-worker` service. Health remains `/api/health`.
 The mapper commits parsed results in the scheduler, while the fetch worker remains database-free.
 
 [Architecture](docs/architecture.md) · [move/content audit](docs/REORGANIZATION.md) · [deployment](deploy/README.md)
@@ -129,8 +133,9 @@ Transitioning out of setup may deliberately pause requests to clear that window.
 
 Robots rules and crawl delays apply. HTTP 429/503 respects Retry-After with a minimum
 60-second site cooldown. Failures back off; articles get at most three attempts.
-Hoodline and El Economista use a hardcoded Chrome 136 curl_cffi transport; other
-sites use Node fetch. Conditional requests use ETag/Last-Modified
+All sites use Python curl_cffi with Chrome 136's network fingerprint. The `crawler`
+profile retains crawler headers; Hoodline and El Economista select `chrome` for
+browser headers. Conditional requests use ETag/Last-Modified
 and count against the allowance even when a server returns 304.
 
 ## Article fields and measurement limits

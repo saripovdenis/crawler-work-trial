@@ -3,7 +3,11 @@
 `config/sites.ts` holds one typed `SitePolicy` per configured domain:
 
 ```ts
-{ domain: 'hoodline.com', enabled: true, requestsPerMinute: 5, transport: 'chrome136' }
+{
+  domain: 'hoodline.com', enabled: true, requestsPerMinute: 5,
+  fetchProfile: 'chrome', articleProfiles: [{ use: 'generic' }],
+  discoverySources: [{ kind: 'feed', url: 'https://hoodline.com/rss' }],
+}
 ```
 
 Only `config/site-policy.ts` imports those defaults. Other modules use:
@@ -12,23 +16,51 @@ Only `config/site-policy.ts` imports those defaults. Other modules use:
 - `policy.active()`: enabled domains, in file order (the existing claim tie-break).
 - `policy.all()`: configured domains including paused ones, for history and parsing.
 
-All 20 limits and the two Chrome transports are unchanged. All domains are enabled
-by default. Subdomains share their configured parent domain's budget and transport.
+All 20 limits are unchanged. All domains are enabled by default. Subdomains share
+their configured parent domain's budget and fetch profile. Every publisher HTTP
+request goes through the Python curl_cffi worker, which also owns claims, archives,
+durable receipts and mirror uploads. The existing service is replaced, not split.
 `domainFor(url)` recognizes paused domains too; recognizing a URL never authorizes
 a request. The scheduler and worker separately check `enabled` before dispatch.
 
 ## Validation
 
 Importing the policy validates unique lowercase DNS names, no parent/child domain
-overlaps, boolean enabled flags, supported transports, and integer limits from 1
+overlaps, boolean enabled flags, known profile names, and integer limits from 1
 through the global ceiling of 60 requests/minute. The scheduler imports it before
 opening the database. Invalid policies fail startup.
 
-Publication/body profiles, Arc hosts, discovery seeds and host priorities, Google
+Publication/body profiles, profile host scopes, discovery seeds and host priorities, Google
 editions, title suffixes and non-article hosts/routes must reference configured
-domains. Seed URLs must belong to their named domain. Regexes and extraction rules
-remain reviewed code. The static boundary check rejects imports of raw defaults
+domains. Seed URLs must belong to their named domain. Both `sites.ts` and
+`profiles.ts` export plain JSON-compatible data: no functions, RegExp instances or
+Sets. The policy layer validates and compiles regex strings. Extraction implementations
+remain code. The static boundary check rejects imports of raw defaults
 outside the policy module.
+
+## Profiles
+
+`fetchProfile` selects a definition in `fetchProfiles`:
+
+- `crawler`: Chrome 136 network fingerprint, `ExaTrialCrawler/0.1` user agent,
+  existing crawler Accept header, no default browser headers.
+- `chrome`: same fingerprint, curl_cffi's default Chrome headers. Hoodline and
+  El Economista retain this selection.
+
+The worker loads enabled domains and legacy profiles from the loopback-only
+`GET /internal/worker-config` endpoint at startup; it does not read TypeScript or
+maintain a second site list. The scheduler snapshots the full fetch profile into `assignment.fetch_profile`
+when reserving a request. Per-request ETag/Last-Modified headers are applied on top.
+All new assignments use `transport: 'curl_cffi'`. Old `node`/`chrome136` receipts
+remain readable; an undispatched old receipt uses Python with equivalent header
+selection. A dispatched receipt is never replayed. Limits, deadlines, retries and
+redirect accounting are unchanged.
+
+`articleProfiles` selects definitions in `articleProfiles`. `generic` means the
+existing JSON-LD/OpenGraph/Readability pipeline. Sina, Eastmoney and CE select their
+existing date/body overrides; Chosun selects `arc-story` only for its verified
+`www.chosun.com` and `biz.chosun.com` hosts. Outside those hosts, generic extraction
+still runs. These hints do not claim every article/template is complete.
 
 ## Discovery sources
 
@@ -38,7 +70,8 @@ adapter. For example:
 
 ```ts
 {
-  domain: 'sina.com.cn', enabled: true, requestsPerMinute: 30, transport: 'node',
+  domain: 'sina.com.cn', enabled: true, requestsPerMinute: 30,
+  fetchProfile: 'crawler', articleProfiles: [{ use: 'sina-article' }],
   discoverySources: [
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1' },
     { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml' },
@@ -71,6 +104,40 @@ or nonstandard ports. API adapters are an explicit code allowlist.
 
 These are discovery seeds, not a completeness oracle. Future source detection can
 populate the same source registry and use the same budgeted fetch path.
+
+### Source review, 2026-11-13
+
+All 20 entries now have explicit sources. Existing successful source records were
+preferred over guessed feed URLs; no crawler was run against publishers for validation.
+Large historical maps were excluded from the starting list. The complete URLs
+are in `config/sites.ts`.
+
+| Domain | Starting sources | Evidence / limit |
+| --- | --- | --- |
+| sina.com.cn | Rolling APIs + finance rolling HTML + news/finance homepages | Existing configured sources; no site-wide completeness guarantee |
+| indiatimes.com | TOI today's sitemap + ET latest RSS + both homepages | TOI source in live DB; ET feed linked from its official RSS directory |
+| chosun.com | Main and business news sitemaps | Both already discover articles |
+| antaranews.com | Latest RSS | Official RSS directory and successful DB source |
+| bbc.com | News sitemap index | Existing seed; its child news maps discover articles |
+| hoodline.com | RSS | Existing successful source; avoids www redirect |
+| udn.com | Google News sitemap | Existing successful source |
+| hurriyet.com.tr | Breaking-news HTML | Existing configured source |
+| haberturk.com | General and local recent-news sitemaps | Existing successful sources |
+| youm7.com | Homepage | Section RSS has repeated redirects/partial responses; not preferred |
+| eastmoney.com | Important-news and domestic-economy HTML | Existing seeds; legacy gzip maps are stale |
+| eldiario.es | Google News sitemap | Existing successful source |
+| ce.cn | Homepage | Existing successful discovery; no better current feed verified |
+| cnnbrasil.com.br | Admin-host news sitemap | Existing successful source |
+| biobiochile.cl | RSS and news sitemap | Existing successful sources; freshness can differ |
+| elmundo.es | All-news sitemap | Existing successful source; opaque name may change |
+| mediapart.fr | Homepage + editor-choice news sitemap | Deliberately partial; section/archive maps remain discoverable |
+| eleconomista.es | News sitemap | Existing successful source with browser headers |
+| newindianexpress.com | News sitemap | Existing successful source |
+| zaobao.com.sg | Realtime listing + homepage | Publisher's current listing; new seed needs live-run observation |
+
+Publisher references: [ANTARA RSS](https://www.antaranews.com/rss/),
+[ET RSS directory](https://economictimes.indiatimes.com/rss.cms),
+[Zaobao realtime](https://www.zaobao.com.sg/realtime).
 
 ## Pausing
 

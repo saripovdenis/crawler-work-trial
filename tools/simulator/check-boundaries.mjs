@@ -9,17 +9,16 @@ const service = path => path.match(/^services\/([^/]+)\//)?.[1];
 export function violationsFor(path, source) {
   const errors = [];
   const storage = path === 'packages/protocol/src/storage-client.ts';
-  const transport = (path.startsWith('services/crawler/src/fetcher/') || path === 'services/monitor/src/client.ts' || storage);
+  const transport = (path === 'services/monitor/src/client.ts' || storage);
   if (!storage && /['"]@aws-sdk\/[^'"]+['"]/.test(source)) errors.push(`${path}: S3 SDK access outside the restricted storage client`);
-  const python = path === 'services/fetcher-impersonate/cffi-fetch.py';
-  const pythonClient = /(?:^|\n)\s*(?:from\s+(?:curl_cffi|urllib|requests|httpx|aiohttp)\b|import\s+(?:requests|httpx|aiohttp|urllib)\b)/;
+  const python = path === 'services/fetcher-impersonate/clients.py';
+  const pythonClient = /(?:^|\n)\s*(?:from\s+(?:curl_cffi|urllib(?!\.parse\b)|requests|httpx|aiohttp)\b|import\s+(?:requests|httpx|aiohttp|urllib(?!\.parse\b))\b)/;
   if (!transport && !python && (httpCall.test(source) || clientImport.test(source) || pythonClient.test(source))) errors.push(`${path}: outbound HTTP outside the fetcher`);
   // The dashboard may import the HTTP server, but not an HTTP client alias.
   if (!transport && /(?:from|require\()\s*['"](?:node:)?http['"]/.test(source)
       && !/import\s*\{\s*createServer\s*\}\s*from\s*['"]node:http['"]/.test(source))
     errors.push(`${path}: HTTP client-capable import outside the fetcher`);
-  if (/services\/crawler\/src\/fetcher\/(?:remote-worker|index)\.ts$/.test(path) && /node:sqlite|packages\/(?:db|pg)|\/scheduler\//.test(source)) errors.push(`${path}: fetch worker must not access the database or scheduler source`);
-  if (python && /\b(?:sqlite3|sqlalchemy|psycopg|DatabaseSync)\b/.test(source)) errors.push(`${path}: Python transport must not access a database`);
+  if (path.startsWith('services/fetcher-impersonate/') && /\b(?:sqlite3|sqlalchemy|psycopg|psycopg2|DatabaseSync)\b/.test(source)) errors.push(`${path}: Python worker must not access a database`);
   for (const match of source.matchAll(/(?:from\s*|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g)) {
     if (!match[1].startsWith('.')) continue;
     const target = relative(ownRoot, resolve(ownRoot, dirname(path), match[1])).replaceAll('\\', '/');

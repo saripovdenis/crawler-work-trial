@@ -19,9 +19,12 @@ request reservations through the scheduler. `packages/core` contains pure extrac
 discovery and newness logic. `services/pipeline` exposes those functions as a library;
 it has no running process and sends no HTTP requests.
 
-The fetcher's transport invokes `services/fetcher-impersonate/cffi-fetch.py` for the
-two configured Chrome-profile domains. Each invocation handles exactly one request;
-the crawler retains budgets, robots, redirects and retries. See its README for JSON shapes.
+`exa-fetch-worker` runs `services/fetcher-impersonate/worker.py` directly. Python
+owns claims, receipt recovery, curl_cffi requests, immutable local archives and
+background mirror uploads. It never opens the database. JSON-compatible profiles
+in `config/profiles.ts` are selected by each entry in `config/sites.ts`; the scheduler
+serves startup policy as JSON and includes a profile snapshot in each assignment.
+The scheduler retains budgets, robots, redirects and retries.
 
 `exa-observatory` starts `apps/dashboard/src/api/index.ts`. It serves `apps/dashboard/dist`
 and queries SQLite using separate read-only connections. Caddy proxies HTTPS to
