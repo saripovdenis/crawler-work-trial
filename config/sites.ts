@@ -66,8 +66,9 @@ export const siteDefaults: readonly SiteConfig[] = [
     { kind: 'sitemap', url: 'https://www.youm7.com/sitemap/SitemapNews', pollEveryMs: 900_000 },
   ] },
   { domain: 'eastmoney.com', requestsPerMinute: 3, articleAdapter: 'eastmoney', seeds: [
-    { kind: 'html', url: 'http://finance.eastmoney.com/yaowen.html', pollEveryMs: 180_000 },
-    { kind: 'html', url: 'http://finance.eastmoney.com/news/cgnjj.html', pollEveryMs: 180_000 },
+    { kind: 'api', adapter: 'eastmoney-live', url: 'https://np-weblist.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&sortEnd=&pageSize=100&req_trace=0', pollEveryMs: 180_000 },
+    { kind: 'api', adapter: 'eastmoney-live', url: 'https://np-weblist.eastmoney.com/comm/web/getFastNewsZhibo?client=web&biz=web_724&sortEnd=&pageSize=100&req_trace=0', pollEveryMs: 180_000 },
+    { kind: 'html', url: 'https://finance.eastmoney.com/yaowen.html', pollEveryMs: 900_000 },
   ] },
   { domain: 'eldiario.es', requestsPerMinute: 3, seeds: [
     { kind: 'rss', url: 'https://www.eldiario.es/rss/', pollEveryMs: 180_000 },

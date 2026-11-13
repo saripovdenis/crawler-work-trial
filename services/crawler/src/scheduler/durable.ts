@@ -16,6 +16,7 @@ import { ArticleAliases } from '../../../../packages/db/src/aliases.js';
 import { createBodyStore, type BodyStore } from '../../../../packages/protocol/src/body-store.js';
 import { elapsedMs, timingEnabled, timingLog } from '../../../../packages/protocol/src/timing.js';
 import { nextTurn } from './selection.js';
+import { requestUrl } from '../fetcher/request-url.js';
 const UA = 'ExaTrialCrawler/0.1';
 const STALE_LINK_MS = 3 * 3600_000;
 const FRESH_SCORE_WINDOW_MS = 6 * 3600_000;
@@ -277,7 +278,8 @@ export class Scheduler {
         const domain=domainFor(task.current_url);
         const target = domain ? policy.for(domain) : undefined;
         if (!domain || !target?.enabled) continue;
-        const slot=reserveSlot(this.db,domain,task.current_url,task.purpose,delay,now);
+        const fetchUrl=requestUrl(task.current_url,task.purpose,now);
+        const slot=reserveSlot(this.db,domain,fetchUrl,task.purpose,delay,now);
         if (!slot.id) continue;
         const headers: Record<string,string> = task.hops ? {} : JSON.parse(task.headers);
         if(task.purpose==='robots') Object.assign(headers,this.robotsCache.headers(task.origin,task.current_url));
@@ -286,7 +288,7 @@ export class Scheduler {
           if(s.etag) headers['If-None-Match']=s.etag;
           if(s.modified) headers['If-Modified-Since']=s.modified;
         }
-        const value: Assignment = { task_id:String(task.id),attempt_id:randomUUID(),lease_token:randomUUID(),domain,url:task.current_url,
+        const value: Assignment = { task_id:String(task.id),attempt_id:randomUUID(),lease_token:randomUUID(),domain,url:fetchUrl,
           purpose:task.purpose,transport:'curl_cffi',fetch_profile:fetchProfileFor(target),headers,timeout_ms:REQUEST_TIMEOUT_MS,max_response_bytes:MAX_RESPONSE_BYTES,
           start_by:new Date(now+DISPATCH_MS).toISOString(),lease_until:new Date(now+LEASE_MS).toISOString() };
         this.run(`INSERT INTO attempt_assignments(attempt_id,request_id,task_id,domain,worker_id,claim_id,lease_token,start_by,lease_until,assignment)

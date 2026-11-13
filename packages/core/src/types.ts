@@ -1,7 +1,7 @@
 export type DiscoverySource = { readonly url: string; readonly pollEveryMs?: number } & (
   | { readonly kind: 'sitemap' | 'rss' | 'feed' }
   | { readonly kind: 'html'; readonly adapter?: string }
-  | { readonly kind: 'api'; readonly adapter: 'sina-roll' }
+  | { readonly kind: 'api'; readonly adapter: 'sina-roll' | 'eastmoney-live' }
 );
 
 export interface DiscoveryScheduling {

@@ -55,10 +55,14 @@ export function createSitePolicyStore(records: readonly SiteConfig[]): SitePolic
         || (url.port && !['80', '443'].includes(url.port))
         || !(url.hostname === domain || url.hostname.endsWith(`.${domain}`))
         || !['sitemap', 'rss', 'feed', 'html', 'api'].includes(source.kind)
-        || (source.kind === 'api' && source.adapter !== 'sina-roll') || sources.has(source.url))
+        || (source.kind === 'api' && !['sina-roll', 'eastmoney-live'].includes(source.adapter)) || sources.has(source.url))
         throw new Error(`Invalid or duplicate discovery source for ${domain}: ${source.url}`);
-      if (source.kind === 'api' && (url.hostname !== 'feed.mix.sina.com.cn' || url.pathname !== '/api/roll/get'))
+      if (source.kind === 'api' && source.adapter === 'sina-roll' && (url.hostname !== 'feed.mix.sina.com.cn' || url.pathname !== '/api/roll/get'))
         throw new Error(`sina-roll requires Sina's rolling API: ${source.url}`);
+      if (source.kind === 'api' && source.adapter === 'eastmoney-live'
+        && (url.protocol !== 'https:' || url.hostname !== 'np-weblist.eastmoney.com'
+          || !['/comm/web/getFastNewsList', '/comm/web/getFastNewsZhibo'].includes(url.pathname)))
+        throw new Error(`eastmoney-live requires Eastmoney's live API: ${source.url}`);
       if (source.pollEveryMs !== undefined && (!Number.isSafeInteger(source.pollEveryMs) || source.pollEveryMs < 1000 || source.pollEveryMs > 7 * 86400_000))
         throw new Error(`Invalid pollEveryMs for ${domain}: ${source.url}`);
       if (source.kind === 'html' && source.adapter !== undefined && !Object.hasOwn(htmlDiscoveryAdapters, source.adapter))
