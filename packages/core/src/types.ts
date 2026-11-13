@@ -6,8 +6,8 @@ export interface SitePolicy {
   readonly domain: string;
   readonly enabled: boolean;
   readonly requestsPerMinute: number;
-  readonly fetchProfile: string;
-  readonly articleProfiles: readonly { readonly use: string; readonly hosts?: readonly string[] }[];
+  readonly fetchProfile?: string;
+  readonly articleAdapter?: string;
   readonly discoverySources?: readonly DiscoverySource[];
 }
 
@@ -18,8 +18,9 @@ export interface FetchProfile {
   readonly headers: Readonly<Record<string, string>>;
 }
 
-export interface ArticleProfile {
+export interface ArticleAdapter {
   readonly strategy: 'generic' | 'arc-story';
+  readonly hosts?: readonly string[];
   readonly publication?: { readonly selector: string; readonly attribute?: string; readonly offset: string };
   readonly body?: { readonly pathPattern: string; readonly selector: string; readonly remove: string };
 }

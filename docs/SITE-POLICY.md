@@ -5,7 +5,7 @@
 ```ts
 {
   domain: 'hoodline.com', enabled: true, requestsPerMinute: 5,
-  fetchProfile: 'chrome', articleProfiles: [{ use: 'generic' }],
+  fetchProfile: 'chrome',
   discoverySources: [{ kind: 'feed', url: 'https://hoodline.com/rss' }],
 }
 ```
@@ -30,7 +30,7 @@ overlaps, boolean enabled flags, known profile names, and integer limits from 1
 through the global ceiling of 60 requests/minute. The scheduler imports it before
 opening the database. Invalid policies fail startup.
 
-Publication/body profiles, profile host scopes, discovery seeds and host priorities, Google
+Article adapter selectors and host scopes, discovery seeds and host priorities, Google
 editions, title suffixes and non-article hosts/routes must reference configured
 domains. Seed URLs must belong to their named domain. Both `sites.ts` and
 `profiles.ts` export plain JSON-compatible data: no functions, RegExp instances or
@@ -38,9 +38,10 @@ Sets. The policy layer validates and compiles regex strings. Extraction implemen
 remain code. The static boundary check rejects imports of raw defaults
 outside the policy module.
 
-## Profiles
+## Fetch defaults and article adapters
 
-`fetchProfile` selects a definition in `fetchProfiles`:
+`fetchProfile` optionally selects a definition in `fetchProfiles`. Omit it for
+`crawler`; only the two browser-header exceptions need it in `sites.ts`:
 
 - `crawler`: Chrome 136 network fingerprint, `ExaTrialCrawler/0.1` user agent,
   existing crawler Accept header, no default browser headers.
@@ -56,11 +57,26 @@ remain readable; an undispatched old receipt uses Python with equivalent header
 selection. A dispatched receipt is never replayed. Limits, deadlines, retries and
 redirect accounting are unchanged.
 
-`articleProfiles` selects definitions in `articleProfiles`. `generic` means the
-existing JSON-LD/OpenGraph/Readability pipeline. Sina, Eastmoney and CE select their
-existing date/body overrides; Chosun selects `arc-story` only for its verified
-`www.chosun.com` and `biz.chosun.com` hosts. Outside those hosts, generic extraction
-still runs. These hints do not claim every article/template is complete.
+Article extraction defaults to the existing JSON-LD/OpenGraph/Readability pipeline.
+No `generic` entry or array is needed. Optional `articleAdapter` selects one of the
+JSON-compatible `articleAdapters` in `profiles.ts`: `sina`, `eastmoney`, `ce` or
+`chosun`. The first three preserve the existing publication/body overrides; Chosun
+uses `arc-story` only for its verified `www.chosun.com` and `biz.chosun.com` hosts.
+Outside those hosts, generic extraction still runs. Open Graph/Twitter extraction
+continues for every article. These hints do not claim every template is complete.
+
+The three stages stay separate:
+
+1. Python downloads and archives raw bytes plus HTTP metadata.
+2. Discovery uses generic HTML, RSS/Atom or sitemap readers. An unusual API needs a
+   named discovery adapter, such as `sina-roll`, which emits article URLs.
+3. Article pages use generic extraction plus an optional article adapter. A
+   discovery adapter never chooses the article extraction rules or sends requests.
+
+This configuration cleanup changes no fetch headers, source URLs, budgets, parser
+selectors or host scopes. It is not a throughput or coverage optimization. Parser
+cache keys include the config and source files, so this release invalidates old
+extraction caches; it does not refetch articles just to warm them.
 
 ## Discovery sources
 
@@ -71,7 +87,7 @@ adapter. For example:
 ```ts
 {
   domain: 'sina.com.cn', enabled: true, requestsPerMinute: 30,
-  fetchProfile: 'crawler', articleProfiles: [{ use: 'sina-article' }],
+  articleAdapter: 'sina',
   discoverySources: [
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1' },
     { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml' },

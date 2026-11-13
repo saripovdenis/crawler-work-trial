@@ -1,8 +1,7 @@
 # Current runtime architecture
 
 - `exa-crawler`: private HTTP scheduler plus archived-response processing, `127.0.0.1:4319`.
-- `exa-fetch-worker`: four bounded request slots, atomic archives and completion receipts; no SQLite access.
-- Python curl_cffi: one-request child for the two configured Chrome-profile domains.
+- `exa-fetch-worker`: Python curl_cffi with four bounded request slots, atomic archives and completion receipts; no database access.
 - `exa-observatory`: unchanged read-only API and dashboard on loopback 4318, behind Caddy.
 
 Scheduling, budgets, leases, mapping and writes belong to the coordinator. The worker
@@ -21,9 +20,12 @@ it has no running process and sends no HTTP requests.
 
 `exa-fetch-worker` runs `services/fetcher-impersonate/worker.py` directly. Python
 owns claims, receipt recovery, curl_cffi requests, immutable local archives and
-background mirror uploads. It never opens the database. JSON-compatible profiles
-in `config/profiles.ts` are selected by each entry in `config/sites.ts`; the scheduler
-serves startup policy as JSON and includes a profile snapshot in each assignment.
+background mirror uploads. It never opens the database. `config/sites.ts` selects
+optional JSON-compatible overrides from `config/profiles.ts`; omitted selections
+use crawler headers and generic article extraction. The scheduler serves startup
+policy as JSON and includes the resolved fetch profile in each assignment.
+Discovery uses generic HTML/feed/sitemap readers or an explicit API adapter.
+Article adapters stay in the parsing pipeline; the worker only archives raw responses.
 The scheduler retains budgets, robots, redirects and retries.
 
 `exa-observatory` starts `apps/dashboard/src/api/index.ts`. It serves `apps/dashboard/dist`

@@ -1,4 +1,4 @@
-import type { ArticleProfile, FetchProfile } from '../packages/core/src/types.js';
+import type { ArticleAdapter, FetchProfile } from '../packages/core/src/types.js';
 
 // Plain JSON-compatible values: no functions, RegExp or Set instances.
 // Both profiles use Python curl_cffi; only their HTTP headers differ.
@@ -19,10 +19,10 @@ export const fetchProfiles: Readonly<Record<string, FetchProfile>> = {
 };
 
 // Generic extraction always reads JSON-LD/OpenGraph and uses Readability as needed.
-// Named overrides retain the selectors and host scopes verified in saved HTML.
-export const articleProfiles: Readonly<Record<string, ArticleProfile>> = {
-  generic: { strategy: 'generic' },
-  'sina-article': {
+// Optional article adapters retain the selectors and scopes verified in saved HTML.
+// Discovery adapters are separate: see each discoverySources entry and discovery-api.ts.
+export const articleAdapters: Readonly<Record<string, ArticleAdapter>> = {
+  sina: {
     strategy: 'generic',
     publication: { selector: 'meta[property="article:published_time"]', attribute: 'content', offset: '+08:00' },
     body: {
@@ -31,7 +31,7 @@ export const articleProfiles: Readonly<Record<string, ArticleProfile>> = {
       remove: 'script,style,noscript,.appendQr_wrap,.article-editor',
     },
   },
-  'eastmoney-article': {
+  eastmoney: {
     strategy: 'generic',
     publication: { selector: '#topbox .tipbox .infos > .item', offset: '+08:00' },
     body: {
@@ -40,9 +40,9 @@ export const articleProfiles: Readonly<Record<string, ArticleProfile>> = {
       remove: 'script,style,noscript',
     },
   },
-  'ce-article': {
+  ce: {
     strategy: 'generic',
     publication: { selector: 'meta[name="publishdate"]', attribute: 'content', offset: '+08:00' },
   },
-  'arc-story': { strategy: 'arc-story' },
+  chosun: { strategy: 'arc-story', hosts: ['www.chosun.com', 'biz.chosun.com'] },
 };

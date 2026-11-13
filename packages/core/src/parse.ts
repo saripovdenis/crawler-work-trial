@@ -4,7 +4,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { dateIso, normalizeUrl, domainFor, isKnownListingUrl } from './policy.js';
 import { sourcePriority } from '../../../config/discovery.js';
-import { articleProfilesFor } from '../../../config/site-policy.js';
+import { articleAdapterFor } from '../../../config/site-policy.js';
 import type { Article } from './types.js';
 import { discoverApi } from './discovery-api.js';
 
@@ -14,7 +14,7 @@ const list = (v: any): any[] => v == null ? [] : Array.isArray(v) ? v : [v];
 const xml = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, processEntities: false });
 
 export function publisherPublication($: CheerioAPI, url: string): {value: string; source: string} | null {
-  const domain = domainFor(url), profile = articleProfilesFor(url).find(profile => profile.publication)?.publication;
+  const domain = domainFor(url), profile = articleAdapterFor(url)?.publication;
   if (!profile) return null;
   const element = $(profile.selector).first();
   const raw = (profile.attribute ? element.attr(profile.attribute) : element.text())?.trim();
@@ -26,7 +26,7 @@ export function publisherPublication($: CheerioAPI, url: string): {value: string
 }
 
 function publisherArticleBody($: CheerioAPI, url: string): {text: string; source: string} | null {
-  const domain=domainFor(url), profile=articleProfilesFor(url).find(profile => profile.body)?.body;
+  const domain=domainFor(url), profile=articleAdapterFor(url)?.body;
   if(!profile || !profile.path.test(new URL(url).pathname)) return null;
   const container=$(profile.selector).first();
   if(!container.length) return null;
@@ -57,7 +57,7 @@ function jsonObjectAfter(script: string, start: number): any | null {
 
 function storyFromScripts(scripts: Iterable<string>, url: string): {text: string; publishedAt: string | null} | null {
   const requested=new URL(url);
-  if(!articleProfilesFor(url).some(profile => profile.strategy === 'arc-story')) return null;
+  if(articleAdapterFor(url)?.strategy !== 'arc-story') return null;
   for(const script of scripts) {
     const marker=/(?:^|[;\s])Fusion\.globalContent\s*=/g;
     for(const match of script.matchAll(marker)) {

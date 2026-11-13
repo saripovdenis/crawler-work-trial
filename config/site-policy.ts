@@ -1,6 +1,6 @@
-import type { ArticleProfile, FetchProfile, SitePolicy } from '../packages/core/src/types.js';
+import type { ArticleAdapter, FetchProfile, SitePolicy } from '../packages/core/src/types.js';
 import { siteDefaults } from './sites.js';
-import { articleProfiles, fetchProfiles } from './profiles.js';
+import { articleAdapters, fetchProfiles } from './profiles.js';
 import { sourceHostPriorities } from './discovery.js';
 import { editions } from './monitor.js';
 import { listingRoutes, nonArticleHosts, titleSuffixes } from './article-rules.js';
@@ -29,20 +29,18 @@ const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a
 export function createSitePolicyStore(records: readonly SitePolicy[]): SitePolicyStore {
   const byDomain = new Map<string, SitePolicy>();
   for (const record of records) {
-    const { domain, enabled, requestsPerMinute, fetchProfile } = record;
+    const { domain, enabled, requestsPerMinute, fetchProfile = 'crawler', articleAdapter } = record;
     if (typeof domain !== 'string' || domain.length > 253 || !domainPattern.test(domain))
       throw new Error(`Invalid lowercase policy domain: ${domain}`);
     if (byDomain.has(domain)) throw new Error(`Duplicate policy domain: ${domain}`);
     if (typeof enabled !== 'boolean' || !Object.hasOwn(fetchProfiles, fetchProfile)
       || !Number.isInteger(requestsPerMinute) || requestsPerMinute < 1 || requestsPerMinute > siteRules.maxRequestsPerMinute)
       throw new Error(`Invalid policy for ${domain}: enabled, fetch profile or request limit`);
-    if (!Array.isArray(record.articleProfiles) || !record.articleProfiles.length)
-      throw new Error(`Missing article profile for ${domain}; use generic for standard extraction`);
-    for (const selection of record.articleProfiles) {
-      if (!Object.hasOwn(articleProfiles, selection.use)) throw new Error(`Unknown article profile for ${domain}: ${selection.use}`);
-      for (const host of selection.hosts || []) {
+    if (articleAdapter !== undefined) {
+      if (!Object.hasOwn(articleAdapters, articleAdapter)) throw new Error(`Unknown article adapter for ${domain}: ${articleAdapter}`);
+      for (const host of articleAdapters[articleAdapter]!.hosts || []) {
         if (!domainPattern.test(host) || !(host === domain || host.endsWith(`.${domain}`)))
-          throw new Error(`Invalid article profile host for ${domain}: ${host}`);
+          throw new Error(`Invalid article adapter host for ${domain}: ${host}`);
       }
     }
     const sources = new Set<string>();
@@ -76,8 +74,8 @@ export function validateSiteProfiles(store: SitePolicyStore): void {
         !/^[!#$%&'*+.^_`|~0-9a-z-]+$/i.test(key) || typeof value !== 'string' || /[\r\n]/.test(value)))
       throw new Error(`Invalid fetch profile: ${name}`);
   }
-  for (const [name, profile] of Object.entries(articleProfiles)) {
-    if (!['generic', 'arc-story'].includes(profile.strategy)) throw new Error(`Invalid article profile: ${name}`);
+  for (const [name, profile] of Object.entries(articleAdapters)) {
+    if (!['generic', 'arc-story'].includes(profile.strategy)) throw new Error(`Invalid article adapter: ${name}`);
     if (profile.publication && (!profile.publication.selector || !/^[+-]\d{2}:\d{2}$/.test(profile.publication.offset)))
       throw new Error(`Invalid publication profile: ${name}`);
     if (profile.body) {
@@ -105,20 +103,20 @@ export function validateSiteProfiles(store: SitePolicyStore): void {
 export const policy = createSitePolicyStore(siteDefaults);
 validateSiteProfiles(policy);
 
-export const fetchProfileFor = (site: SitePolicy): FetchProfile => fetchProfiles[site.fetchProfile]!;
+export const fetchProfileFor = (site: SitePolicy): FetchProfile => fetchProfiles[site.fetchProfile ?? 'crawler']!;
 
-type CompiledArticleProfile = Omit<ArticleProfile, 'body'> & {
-  body?: NonNullable<ArticleProfile['body']> & { path: RegExp };
+type CompiledArticleAdapter = Omit<ArticleAdapter, 'body'> & {
+  body?: NonNullable<ArticleAdapter['body']> & { path: RegExp };
 };
-const compiledArticles = new Map<string, CompiledArticleProfile>(Object.entries(articleProfiles).map(([name, { body, ...profile }]) => [name, {
+const compiledArticles = new Map<string, CompiledArticleAdapter>(Object.entries(articleAdapters).map(([name, { body, ...profile }]) => [name, {
   ...profile, ...(body ? { body: { ...body, path: new RegExp(body.pathPattern) } } : {}),
 }]));
 
-export function articleProfilesFor(url: string): readonly CompiledArticleProfile[] {
+export function articleAdapterFor(url: string): CompiledArticleAdapter | undefined {
   const { hostname } = new URL(url);
   const site = policy.all().find(({ domain }) => hostname === domain || hostname.endsWith(`.${domain}`));
-  return (site?.articleProfiles || []).filter(selection => !selection.hosts || selection.hosts.includes(hostname))
-    .map(selection => compiledArticles.get(selection.use)!);
+  const adapter = site?.articleAdapter ? compiledArticles.get(site.articleAdapter) : undefined;
+  return adapter && (!adapter.hosts || adapter.hosts.includes(hostname)) ? adapter : undefined;
 }
 const configuredOrder = new Map(policy.all().flatMap(site =>
   (site.discoverySources || []).map((source, index) => [source.url, index] as const)));
