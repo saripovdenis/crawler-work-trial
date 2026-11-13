@@ -161,16 +161,14 @@ no eligibility timestamp. Historical request and article counts remain visible.
 
 ## Shared budget calculation
 
-`siteRules` names the existing 10-minute warm-up (60/min), 60-second rolling window,
-20ms spacing margin and 35-second reserve for an unfinished request. The latter
-covers 5s dispatch + 25s transport + 5s margin. The ledger remains authoritative.
+`siteRules` defines a 10-minute warm-up (60/min), 20ms spacing margin and
+35-second uncertain-dispatch reserve. Rate spacing uses actual worker send times.
+After warm-up, a 60.02-second pause drains the faster traffic before the lower cap.
 
-The scheduler and dashboard use `budgetDue()` in `packages/core/src/policy.ts`,
-including spacing after the previous request's finish (or conservative unfinished
-reserve), rolling starts, and cooldown. The dashboard's **Budget eligible** column
-is the earliest budget time, not a promise of dispatch: queued work, a live lease
-and origin-specific robots rules can delay a request further.
+The indexed `sites.next_available_at` is the scheduler's rate gate. The request
+ledger remains the audit trail; eligibility no longer scans its recent rows.
+`siteAvailableAt()` applies the warm-up boundary for both scheduler and dashboard.
+Active leases and per-origin `budget_origins` robots delays can postpone dispatch.
 
-No database schema, ports, processes or environment variables change. A future
-table-backed policy store can implement the same accessor interface; policy history,
-reloads and indexed next-eligible scheduling are intentionally deferred.
+Policies still use the same accessor interface. Ports, processes and environment
+variables are unchanged. See `docs/POSTGRES.md` for the budget migration.

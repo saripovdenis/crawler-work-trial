@@ -46,15 +46,12 @@ export function currentRequestLimit(now: number, started: number, rpm: number): 
   return now < started + siteRules.warmupMs ? siteRules.warmupRequestsPerMinute : rpm;
 }
 
-// Shared by the scheduler and dashboard. Requests must be ordered by start time.
-export function budgetDue(now: number, started: number, rpm: number,
-  recent: readonly { started: number; finished: number | null }[], cooldown = 0, crawlDelay = 0): number {
-  let due = Math.max(cooldown, nextAllowed(now, started, rpm, recent.map(r => r.started), crawlDelay));
-  if (recent.length) {
-    const lastPossibleDispatch = Math.max(...recent.map(r => r.finished ?? r.started + siteRules.inFlightReserveMs));
-    due = Math.max(due, nextAllowed(now, started, rpm, [lastPossibleDispatch], crawlDelay));
-  }
-  return due;
+// Warm-up traffic must drain before the lower steady-state cap takes effect.
+export function siteAvailableAt(now: number, started: number, next: number): number {
+  const end = started + siteRules.warmupMs;
+  const due = Math.max(now, next);
+  return due >= end && due < end + siteRules.windowMs + siteRules.spacingMarginMs
+    ? end + siteRules.windowMs + siteRules.spacingMarginMs : due;
 }
 
 // Missing timezone is not guessed from this laptop's timezone.

@@ -86,6 +86,38 @@ CREATE TABLE IF NOT EXISTS crawl_budget.article_aliases (
 --
 CREATE INDEX IF NOT EXISTS article_alias_target ON crawl_budget.article_aliases (target_url)
 --
+-- Budget migration is atomic and one-off. Keep cooldown for old-release rollback.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='crawl_budget' AND table_name='sites' AND column_name='next_available_at') THEN
+    ALTER TABLE crawl_budget.sites ADD COLUMN next_available_at bigint NOT NULL DEFAULT 0;
+    -- A full minute after the last possible dispatch safely drains any old burst.
+    UPDATE crawl_budget.sites s SET next_available_at=greatest(s.cooldown,coalesce((
+      SELECT max(greatest(coalesce(r.finished,r.started+35000),r.started+35000))+60020
+      FROM crawl_budget.requests r WHERE r.domain=s.domain),0));
+  END IF;
+END $$
+--
+CREATE INDEX IF NOT EXISTS sites_available ON crawl_budget.sites (next_available_at)
+--
+ALTER TABLE crawl_budget.requests ADD COLUMN IF NOT EXISTS sent_at bigint
+--
+ALTER TABLE crawl_budget.requests ADD COLUMN IF NOT EXISTS budget_spacing_ms bigint
+--
+ALTER TABLE crawl_budget.requests ADD COLUMN IF NOT EXISTS budget_delay_ms bigint
+--
+CREATE TABLE IF NOT EXISTS crawl_budget.budget_origins (origin text PRIMARY KEY, last_started bigint NOT NULL, next_available_at bigint NOT NULL)
+--
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM crawl_budget.meta WHERE key='budget-origins-v1') THEN
+    INSERT INTO crawl_budget.budget_origins(origin,last_started,next_available_at)
+      SELECT substring(url from '^(https?://[^/]+)'),max(greatest(coalesce(finished,started+35000),started+35000)),
+        max(greatest(coalesce(finished,started+35000),started+35000))
+      FROM crawl_budget.requests WHERE url ~ '^https?://' GROUP BY substring(url from '^(https?://[^/]+)')
+      ON CONFLICT(origin) DO NOTHING;
+    INSERT INTO crawl_budget.meta(key,value) VALUES ('budget-origins-v1','done');
+  END IF;
+END $$
+--
 CREATE SCHEMA IF NOT EXISTS reconciler
 --
 DO $$ DECLARE name text; BEGIN

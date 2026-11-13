@@ -110,15 +110,19 @@ an error; the worker retains its receipt for operator inspection rather than ref
 
 ## Crash and safety rules
 
-Claims reserve the existing ledger, create the assignment and lease the task in one
-`BEGIN IMMEDIATE` transaction. Existing rolling-window, completion-spacing, startup and
-cooldown calculations are reused. Worker timestamps are measurements; `requests.finished`
-is scheduler-observed. Expired attempts receive the observed expiry time and remain charged.
+Claims conditionally update `sites.next_available_at`, insert the audit request,
+create the assignment and lease the task in one PostgreSQL transaction. A competing
+claim must win `UPDATE ... WHERE next_available_at <= now RETURNING` before dispatch.
+The initial hold is 35 seconds plus rate spacing. Completion locks the assignment,
+then releases the hold to `max(actual_send + spacing, scheduler_receipt)`. Duplicate
+or expired completions cannot release a newer reservation. Unknown sends keep the hold.
+429/503 extend it with Retry-After. Per-origin robots spacing is durable.
 
 Dispatch must begin within five seconds; Python checks the deadline immediately
-before network dispatch. libcurl limits the complete request to 20 seconds; leases
-last 60 seconds. There is no per-request subprocess or separate subprocess timer. There is no lease renewal. Safe expiry
-plus conservative completion spacing precedes another assignment for that domain.
+before network dispatch. libcurl limits the request to 20 seconds; leases last
+60 seconds. There is no lease renewal. One active assignment per domain prevents
+overlapping requests. The 35-second uncertain-dispatch reserve remains conservative.
+
 
 Worker slots fsync their claim ID before claiming and dispatch intent before fetching.
 Archives and completed receipts use temporary-file + fsync + rename + directory-fsync.
@@ -198,4 +202,4 @@ response's finish time; article `fetched` continues to mean parse completion.
 The dispatch allowance is five seconds after measured curl_cffi imports took
 1–1.24 seconds before transport setup. Uncertain reservations use a 35-second
 horizon (5-second dispatch + 25-second subprocess cap + 5-second margin).
-Completion-based spacing and one active assignment per domain still apply.
+Start-based spacing and one active assignment per domain apply.

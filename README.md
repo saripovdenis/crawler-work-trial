@@ -189,12 +189,14 @@ python3 -m venv .venv
 CRAWLER_PYTHON="$PWD/.venv/bin/python" npm run worker
 ```
 
-`services/crawler/src/scheduler/budget.ts` atomically checks and reserves each request with SQLite
-`BEGIN IMMEDIATE`. Every attempted request, including diagnostics and failures,
-remains charged across redeploys. Site start time and Retry-After cooldowns are also
-persisted. Spacing is measured conservatively from response completion, so throughput
-can be below the cap. Unfinished attempts retain a 30-second in-flight allowance.
-No deployment or poll reset starts a new setup window.
+`services/crawler/src/scheduler/budget.ts` reserves `sites.next_available_at` with
+an atomic conditional PostgreSQL update in the same transaction as the request ledger.
+Before dispatch it holds 35 seconds plus rate spacing. Completion uses the worker's
+actual send time plus `ceil(60000/rpm) + 20ms`, or scheduler receipt time if later.
+Uncertain attempts retain their reservation; active leases prevent overlap. Retry-After
+extends availability. Per-origin robots delays are persisted separately. A 60.02-second
+pause drains warm-up traffic before the steady-state cap. Restart never resets warm-up.
+The migration conservatively backfills availability from the existing ledger.
 
 Deploy using [deploy/README.md](deploy/README.md). The persistent database and request budget stay in place.
 

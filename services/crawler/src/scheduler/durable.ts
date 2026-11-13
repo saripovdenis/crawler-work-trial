@@ -7,7 +7,7 @@ import { domainFor, classify, isKnownListingUrl } from '../../../../packages/cor
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
 import { DISPATCH_MS, LEASE_MS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS, fetchFinishedAt, type Assignment, type Completion, type Claim } from '../../../../packages/protocol/src/index.js';
-import { reserveSlot, slotDue } from './budget.js';
+import { reserveSlot, slotDue, completeSlot } from './budget.js';
 import { ArchiveParser, type ParseResult } from './parse-worker.js';
 import { sourcePriority, urlRecencyPriority } from '../../../../config/discovery.js';
 import { RobotsCache, ROBOTS_TTL_MS, ROBOTS_DENIED_TTL_MS } from './robots-cache.js';
@@ -144,7 +144,7 @@ export class Scheduler {
   recover(process = true) {
     const now = this.clock();
     this.transaction(() => {
-      for (const a of this.all('SELECT * FROM attempt_assignments WHERE terminal IS NULL AND lease_until<=?', now)) {
+      for (const a of this.all('SELECT * FROM attempt_assignments WHERE terminal IS NULL AND lease_until<=? FOR UPDATE', now)) {
         // Unknown attempts retain their charge and the entire safe timeout horizon.
         this.run("UPDATE requests SET finished=?,error='Lease expired; outcome unknown' WHERE id=?", now, a.request_id);
         this.run("UPDATE attempt_assignments SET terminal='expired',processing='done' WHERE attempt_id=?", a.attempt_id);
@@ -166,11 +166,14 @@ export class Scheduler {
         return { task: JSON.parse(prior.assignment) };
       }
       const now = this.clock();
-      for (const site of policy.active()) {
+      const eligible = this.all('SELECT domain FROM sites WHERE next_available_at<=? ORDER BY next_available_at,domain',now);
+      for (const {domain: eligibleDomain} of eligible) {
+        const site=policy.for(eligibleDomain);
+        if (!site?.enabled) continue;
         if (!this.one('SELECT 1 FROM sites WHERE domain=?',site.domain)) continue;
         if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL", site.domain)) continue;
         // Avoid scanning large candidate queues before this domain can spend a slot.
-        if (slotDue(this.db, site.domain, 0, now) > now) continue;
+        if (slotDue(this.db, site.domain, now) > now) continue;
         const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8) settled", site.domain)!.n;
         // Choose the constant range before preparing SQL. The equivalent OR
         // predicate scans priority-zero rows even after the initial sample ends.
@@ -260,7 +263,7 @@ export class Scheduler {
   }
   complete(id: string, value: Completion) {
     return this.transaction(() => {
-      const a=this.one('SELECT * FROM attempt_assignments WHERE attempt_id=?',id);
+      const a=this.one('SELECT * FROM attempt_assignments WHERE attempt_id=? FOR UPDATE',id);
       if(!a) throw new ContractError('Unknown attempt',404);
       if(value.lease_token!==a.lease_token) throw new ContractError('Invalid lease token',403);
       if(a.terminal) return {outcome:a.terminal};
@@ -283,13 +286,19 @@ export class Scheduler {
         || !value.started_at || Date.parse(value.fetch_finished_at)<Date.parse(value.started_at)
         || Date.parse(value.fetch_finished_at)>Date.parse(value.finished_at)
         || Date.parse(value.fetch_finished_at)>now)) throw new ContractError('Invalid fetch completion time');
+      const sent=value.started_at ? Date.parse(value.started_at) : null;
+      const reserved=this.one('SELECT started FROM requests WHERE id=?',a.request_id)!.started;
+      if ((sent!==null && (sent<reserved || sent>now || sent>Date.parse(value.finished_at)))
+        || Date.parse(value.finished_at)>now) throw new ContractError('Invalid dispatch time');
+      let retryUntil=0;
       const finished=value.fetch_finished_at ? Date.parse(value.fetch_finished_at) : now;
       this.run('UPDATE requests SET finished=?,status=?,headers=?,body_hash=?,error=? WHERE id=?',finished,value.status,JSON.stringify(value.headers),value.body_hash,value.error,a.request_id);
       if ([429,503].includes(value.status!)) {
         const retry=value.headers['retry-after']||'300';
         const until=/^\d+$/.test(retry)?now+Number(retry)*1000:Date.parse(retry);
-        this.run('UPDATE sites SET cooldown=max(cooldown,?) WHERE domain=?',Math.max(now+60_000,until||0),a.domain);
+        retryUntil=Math.max(now+60_000,until||0);
       }
+      completeSlot(this.db,a.request_id,sent,now,retryUntil);
       this.run("UPDATE attempt_assignments SET terminal='completed',completion=?,processing='pending' WHERE attempt_id=?",JSON.stringify(value),id);
       this.run("UPDATE crawl_tasks SET state='downloaded' WHERE id=?",a.task_id);
       return {outcome:'completed'};

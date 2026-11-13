@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { policy, siteRules } from "../../../../config/site-policy.js";
 import { LruCache } from "../../../../packages/core/src/lru.js";
 import { PARSER_VERSION } from "../../../../packages/core/src/parser-version.js";
-import { budgetDue, currentRequestLimit } from "../../../../packages/core/src/policy.js";
+import { siteAvailableAt, currentRequestLimit } from "../../../../packages/core/src/policy.js";
 
 type Row = Record<string, any>;
 export class Observatory {
@@ -57,11 +57,7 @@ export class Observatory {
       const a = articleRows.find((r) => r.domain === site.domain) || {};
       const c = configurations.find((r) => r.domain === site.domain) || {};
       const q = queueRows.find((r) => r.domain === site.domain) || {};
-      const recent = this.all(
-        "SELECT started,finished FROM requests WHERE domain=? ORDER BY started DESC,id DESC LIMIT ?",
-        site.domain, siteRules.maxRequestsPerMinute + 1,
-      ).reverse() as {started: number; finished: number | null}[];
-      const availableAt = budgetDue(now, c.started || 0, site.requestsPerMinute, recent, c.cooldown || 0);
+      const availableAt = siteAvailableAt(now,c.started || 0,c.next_available_at || 0);
       const error = this.one(
         "SELECT last_error FROM sources WHERE domain=? AND last_error IS NOT NULL ORDER BY next_poll DESC LIMIT 1",
         site.domain,
