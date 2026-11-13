@@ -28,6 +28,8 @@ Python directly. SIGTERM stops new claims and drains bounded in-flight work.
 ## Configuration and HTTP contract
 
 `config/sites.ts` selects JSON-compatible definitions in `config/profiles.ts`.
+Omitting `fetchProfile` selects crawler headers. Optional `articleAdapter` belongs
+to the Node parsing pipeline; the Python worker only downloads and archives bytes.
 There is no Python copy of the site list. Before claiming work the worker reads
 `GET /internal/worker-config` from the loopback scheduler:
 

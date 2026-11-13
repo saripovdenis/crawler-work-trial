@@ -24,10 +24,12 @@ The response archive currently uses local reads plus an asynchronous Garage mirr
 See [storage rollout, validation and rollback](docs/ARCHIVE-STORAGE.md).
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
-Site limits, enabled flags, discovery sources and named profile selections live in `config/sites.ts`, behind the
+Site limits, enabled flags, discovery sources and optional overrides live in `config/sites.ts`, behind the
 validated `policy.for()`, `policy.all()` and `policy.active()` accessors.
-`config/profiles.ts` defines JSON-compatible fetch and extraction profiles. All
-publisher HTTP uses Python curl_cffi; no per-site Node transport is selected.
+`config/profiles.ts` defines JSON-compatible fetch profiles and article adapters.
+Omitted `fetchProfile` uses crawler headers; omitted `articleAdapter` uses generic
+extraction. All publisher HTTP uses Python curl_cffi. Discovery independently uses
+generic HTML/feed/sitemap readers or an explicit API adapter such as `sina-roll`.
 Set `enabled: false` to pause a domain; deploy/restart all services to apply it.
 See [site policies, pause behavior and shared budget rules](docs/SITE-POLICY.md).
 
