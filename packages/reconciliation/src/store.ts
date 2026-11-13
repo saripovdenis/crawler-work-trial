@@ -7,6 +7,8 @@ import { policy } from "../../../config/site-policy.js";
 import {
   pollInterval,
   pollLookback,
+  exaBudget,
+  exaBudgetAvailable,
   type providerConfig,
   type ProviderId,
 } from "../../../config/monitor.js";
@@ -46,11 +48,11 @@ export class MonitorStore {
           )
           .run(c.id, site.domain, now + i * 6000),
       );
-      // Apply a shorter cadence from the last charged attempt, never from restart.
-      // Keep provider cooldowns and all quota reservations intact.
+      // Honor the longer cadence from the last charge, never from restart.
+      // Preserve later due times, provider cooldowns and quota reservations.
       this.db
         .prepare(
-          `UPDATE provider_schedule SET next_poll=least(next_poll,
+          `UPDATE provider_schedule SET next_poll=greatest(next_poll,
         coalesce((SELECT max(started_at) FROM provider_runs r
           WHERE r.provider=provider_schedule.provider AND r.site=provider_schedule.site)+?,next_poll))
         WHERE provider=?`,
@@ -94,6 +96,11 @@ export class MonitorStore {
           (row.total_limit > 0 && total >= row.total_limit)
         )
           continue;
+        if (row.provider === "exa") {
+          const spent = Number(this.db.prepare(`SELECT coalesce(sum(coalesce(cost_usd,quota_used*CAST(? AS NUMERIC))),0) usd
+            FROM provider_runs WHERE provider='exa' AND started_at>=?`).get(exaBudget.perRequestUsd,now-86400000)!.usd);
+          if (!exaBudgetAvailable(spent)) continue;
+        }
         const from = Math.max(
           now - 86400000,
           (row.last_success ?? now) - pollLookback,

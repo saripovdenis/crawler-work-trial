@@ -100,7 +100,7 @@ export default function CrawlerOnlyPage() {
         </tr>)}</tbody>
       </table>
       <p className="footnote">
-        {current.provisional ? "Live comparison: Google may list these articles later." : `Articles ≥${current.gracePeriodMinutes} min old.`} Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from Google.
+        {current.provisional ? `Live comparison: ${comparisonProviders[provider]} may list these articles later.` : `Articles ≥${current.gracePeriodMinutes} min old.`} Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from {comparisonProviders[provider]}.
         {" "}Updated {new Date(current.generatedAt).toISOString().slice(11, 19)} UTC{loading ? " · refreshing" : ""}.
       </p>
     </>}

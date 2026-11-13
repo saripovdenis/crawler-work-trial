@@ -2,7 +2,7 @@ import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { LruCache } from "../../core/src/lru.js";
 import { policy } from "../../../config/site-policy.js";
 import { comparisonProviders, defaultComparisonProvider } from "../../../config/comparison.js";
-import { pollInterval } from "../../../config/monitor.js";
+import { pollInterval, exaBudget, exaBudgetAvailable } from "../../../config/monitor.js";
 import { urlKey } from "./identity.js";
 import { fetchedArticles } from "./timing.js";
 import { dispatchSummary } from "./dispatch.js";
@@ -195,6 +195,12 @@ export class CoverageReader {
         p.quota_exhausted =
           (p.used_today || 0) >= p.daily_limit ||
           (p.total_limit > 0 && (p.used_total || 0) >= p.total_limit);
+        if (p.provider === 'exa') {
+          p.estimated_spend_today = Number(monitor.prepare(`SELECT coalesce(sum(coalesce(cost_usd,quota_used*CAST(? AS NUMERIC))),0) usd
+            FROM provider_runs WHERE provider='exa' AND started_at>=?`).get(exaBudget.perRequestUsd,now-86400000)!.usd);
+          p.daily_spend_limit = exaBudget.dailyUsd;
+          p.quota_exhausted ||= !exaBudgetAvailable(p.estimated_spend_today);
+        }
       }
       const runs = monitor
         .prepare(

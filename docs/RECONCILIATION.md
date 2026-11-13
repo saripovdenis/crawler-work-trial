@@ -1,9 +1,8 @@
-> Current provider policy: Google News is the only active comparator and scheduled
-> provider. All three comparison pages retain a provider selector with Google News
-> as its sole option. `config/comparison.ts` controls availability. Unspecified API
-> providers default to Google; unavailable providers return 400. Old page URLs
-> selecting a removed provider reopen on Google. Historical provider rows and
-> quota ledgers remain stored. New Exa polls are disabled, even with a saved key.
+> Current provider policy: Google News and Exa are available on Coverage,
+> Freshness and Crawler-only. Google is the default; `?provider=exa` selects Exa.
+> Each provider polls every site hourly. Exa uses Lite search, up to 100 results,
+> with no article contents or summaries. All coverage numbers describe the
+> selected provider's deduplicated sample, never total publisher output.
 
 # External coverage reconciliation
 
@@ -13,7 +12,7 @@
 
 
 `services/monitor` runs independently of the crawler and dashboard. It polls each
-configured domain every 10 minutes, staggered by six seconds per provider. Two
+configured domain every hour, staggered by six seconds per provider. Two
 bounded request slots prevent one slow provider from blocking all others. A slow
 round can finish late; the dashboard exposes each call and its timestamps.
 
@@ -84,8 +83,8 @@ dates are excluded and counted explicitly. First/last observations and each
 provider's original timestamps remain available in the timing details. All times
 are UTC. Publication is provider-reported, not proof of freshness or indexing time.
 
-The last-10-minutes view is provisional: the provider polling interval is also
-10 minutes, and indexing delays or later polls can change the sample. Selecting
+The last-10-minutes view is provisional: the provider polling interval is
+one hour, and indexing delays or later polls can change the sample. Selecting
 it only reads stored data; it does not trigger calls or consume provider quota.
 The default remains one hour.
 
@@ -99,29 +98,39 @@ sightings (flagging truncation) and paginates articles in groups of 50. `matches
 | Provider | Credential | Request | Default lifetime cap |
 |---|---|---|---|
 | Google News | none | unofficial RSS search, typically max 100 | none |
-| Exa | `EXA_API_KEY` | search only, 10 results, no content fetching | 1,000 calls |
+| Exa | `EXA_API_KEY` | Lite search, max 100 results, no content fetching | none |
 
-Only Google News and Exa are scheduled. Previously configured providers remain
-disabled; their historical quota records are retained. No account signup is needed.
-Search caps mean **sampling**. Exa deliberately requests ten results to keep
-cost down; it is not a complete per-domain benchmark. Full pages are marked
-truncated even when the provider cannot confirm that more results exist.
-Results are filtered to the exact publication window locally.
-The lookback overlaps the last success by one hour, capped at 24 hours after an
-outage. Google uses a rounded-up hour lookback and remains best effort.
+Search caps mean **sampling**. Full pages are marked truncated; a full page does
+not establish the provider's total count. Per-poll counts, original publication
+and first observation times, URLs and titles remain stored. Overlapping polls
+are deduplicated before coverage is calculated. Results are filtered to the
+exact publication window locally. The lookback overlaps the previous success by
+one hour, capped at 24 hours after an outage. Google uses rounded-up hours.
 
-20 domains × 144 polls/day = **2,880 calls/day/provider**. Exa's 1,000-call cap
-lasts about 8 hours 20 minutes from zero usage and protects this initial trial; it does not automatically buy more credits. Current account quotas and
-pricing must be checked before raising these limits.
+20 domains × 24 polls/day = **480 calls/day/provider**. Both providers retain a
+secondary default cap of 3,000 calls per rolling 24 hours, allowing their old
+10-minute history to drain without resetting the quota ledger. The persisted
+per-site schedule enforces the hourly cadence, including after a restart.
 
-Daily defaults are 3,000 Google calls and 1,000 Exa calls per rolling 24 hours. Override with
-`MONITOR_<PROVIDER>_DAILY_LIMIT` or `MONITOR_<PROVIDER>_TOTAL_LIMIT`, where PROVIDER
-is `GOOGLE` or `EXA`. A zero daily limit disables
-calls; a zero total limit means no lifetime cap. Lifetime usage counts all
-reservations in this database, including across key rotation. It is not the
-provider's account balance; usage by other apps is unknown.
+Exa additionally has a **$45.12 rolling daily spend cap**. Before reserving a new
+call, its maximum $0.094 charge must fit. Reported `cost_usd` is used for completed
+calls; missing costs, failed and in-flight calls conservatively count as $0.094
+per charged request. The reservation and budget check happen in the same claim
+transaction. This uses the existing ledger, including earlier trial spend, and
+requires no schema change. Costs in other applications are not visible here.
 
-Reservations commit to SQLite **before** sending. Failed and interrupted calls
+At the checked Lite rate ($0.004/search plus $0.001 per result above ten), a full
+100-result search costs $0.094. 480 full searches cost $45.12/day. No content or
+AI summaries are requested. `config/monitor.ts` holds the mode, result cap and
+cost ceilings together; verify pricing before changing them.
+
+`MONITOR_<PROVIDER>_DAILY_LIMIT` and `MONITOR_<PROVIDER>_TOTAL_LIMIT` can further
+restrict requests. Zero daily limit disables calls; zero total limit removes
+the lifetime cap. The old default 1,000-call Exa trial cap is removed. History is
+retained, not reset. A missing key disables Exa; authentication or credit errors
+pause it. No payment method or automatic top-up is configured by this change.
+
+Reservations commit to PostgreSQL **before** sending. Failed and interrupted calls
 remain charged, even if they never reached the provider. Restarts preserve due
 times and usage. HTTP 429/503 honors Retry-After; paid-provider 401/402/403 pauses
 that provider until configuration/restart. There is no automatic pagination or
@@ -200,7 +209,7 @@ Neither current provider adapter supplies exact index-entry time:
 `provider_first_seen_at` stays null. `observed_at` is an upper bound on when the
 provider had that item, not proof it appeared since the previous poll. Ranking,
 truncation, errors and indexing delays make absent results inconclusive. The
-10-minute cadence improves observation resolution but does not guarantee it.
+hourly cadence bounds polling resolution but does not establish exact index-entry time.
 
 Matched groups expose:
 - `crawler_fetch_finished_at`: `attempt_assignments.completion.finished_at` from
@@ -219,12 +228,14 @@ Each provider timing includes `fetch_minus_published_ms` and
 and are not a claim about which index was faster. All API times are UTC epoch
 milliseconds; the UI renders UTC. Title matches remain explicitly probable.
 
-At the currently documented $7 per 1,000 auto searches, an uncapped 10-minute
-Exa schedule would cost about $20.16/day. The 1,000-call lifetime cap is unchanged;
-this change does not enable purchases or reset charged calls. Google has no
-paid key here; RSS availability remains best effort. On restart, persisted due
-times are shortened to no later than last charged attempt + 10 minutes, preserving
-cooldowns and the six-second spacing between calls.
+Restarting preserves provider cooldowns and six-second spacing. Due times are
+advanced when necessary to last charged attempt + one hour. Neither a restart
+nor the move from ten-minute polling can trigger an early repeat.
+
+Coverage and Freshness cache by provider. Switching the selector changes all
+three time-window cards and every domain row together; old-provider values are
+hidden while the requested provider loads. An aborted response cannot replace
+the selected provider's data. Loading, errors and quota status remain visible.
 
 ## Result types and archived date repairs
 
@@ -288,16 +299,16 @@ viewing or refreshing it makes no provider requests and spends no Exa quota.
 
 The page shows one percentage and a domain breakdown against Google News.
 The percentage is `crawlerOnly / compared * 100`. For 24-hour and seven-day
-windows, `compared` includes articles at least 70 minutes old that are either confirmed listed or absent
+windows, `compared` includes articles at least 120 minutes old that are either confirmed listed or absent
 from a successful covering sample. Pending, uncertain and non-comparable
 records are excluded; an empty denominator returns `null`, displayed as “—”.
 Both capped and uncapped samples count, so this is sampled absence, not proof
 of exclusivity. The page also offers “Last hour · provisional”: the literal latest 60 minutes
-by publication time, without the 70-minute grace. A confirmed match or a
+by publication time, without the 120-minute grace. A confirmed match or a
 successful covering poll is still required; uncertain matches stay excluded.
 This is absence from available samples so far, and may change as Google indexes
 articles. The API exposes `provisional: true` and `gracePeriodMinutes: 0` for
-`window=1h`. The 24-hour and seven-day windows retain the 70-minute grace.
+`window=1h`. The 24-hour and seven-day windows retain the 120-minute grace.
 
 `GET /api/crawler-only?window=24h&site=&provider=google&show=all&page=1`
 accepts publication windows `1h`, `24h` (default) and `7d`; a configured site;
@@ -321,13 +332,13 @@ matcher remains possible evidence, never a confirmed match.
 | --- | --- |
 | Not comparable | No saved successful crawler fetch exists for the parsed record. |
 | Listed | At least one selected provider has a stored matched row. |
-| Provider may still list it | Unlisted and published less than 70 minutes ago. |
+| Provider may still list it | Unlisted and published less than 120 minutes ago. |
 | Possible match | Unmatched, but a selected provider has the same normalized title. |
 | Not comparable | Any selected provider lacks a successful poll covering publication. |
 | Crawler-only, weak | A selected provider's latest successful covering poll was capped. |
 | Crawler-only, strong | Every selected provider's latest successful covering poll was uncapped. |
 
-The 70-minute grace is the shared 60-minute lookback plus 10-minute cadence.
+The 120-minute grace is the shared 60-minute lookback plus 60-minute cadence.
 Covering evidence always uses each run's actual `window_start <= publication <
 window_end`, successful status and completed observation time. Failed polls
 never support a strong or weak claim. Each row exposes the selected providers' status, reason and last successful
