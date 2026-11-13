@@ -9,6 +9,8 @@ export const siteDefaults: readonly SiteConfig[] = [
   { domain: 'sina.com.cn', requestsPerMinute: 30, articleAdapter: 'sina', seeds: [
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1', pollEveryMs: 30_000 },
     { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=506&lid=3328&num=50&page=1', pollEveryMs: 30_000 },
+    { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2515&num=50&page=1', pollEveryMs: 120_000 },
+    { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=155&lid=1686&num=50&page=1', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://finance.sina.com.cn/', pollEveryMs: 120_000 },
     { kind: 'html', url: 'https://news.sina.com.cn/', pollEveryMs: 120_000 },
