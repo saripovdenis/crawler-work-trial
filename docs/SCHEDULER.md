@@ -21,7 +21,10 @@ no per-request Python startup. The dashboard/Caddy are unchanged.
 - `attempt_assignments`: unique claim ID and request-ledger ID, opaque token, worker ID,
   dispatch/lease deadlines, completion JSON and durable processing status.
 - Partial unique index permits only one unterminated assignment per configured target domain.
-- `scheduler_domains` persists the existing two-articles-between-polls counter.
+- `meta` persists `discovery-turn:<domain>` at reservation time for configurable
+  article/discovery weights (default 3:1). Oldest-due discovery tasks go first.
+  Per-seed `pollEveryMs` and source cooldowns determine persisted next-poll times.
+  See [seed scheduling](SITE-POLICY.md#rss-seeds-and-polling-allocation).
 
 ### Robots cache
 

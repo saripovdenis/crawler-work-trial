@@ -1,6 +1,6 @@
 import type { ArticleAdapter, FetchProfile, SiteConfig, SitePolicy } from '../packages/core/src/types.js';
 import { siteDefaults } from './sites.js';
-import { articleAdapters, fetchProfiles } from './profiles.js';
+import { articleAdapters, fetchProfiles, htmlDiscoveryAdapters } from './profiles.js';
 import { sourceHostPriorities } from './discovery.js';
 import { editions } from './monitor.js';
 import { listingRoutes, nonArticleHosts, titleSuffixes } from './article-rules.js';
@@ -17,6 +17,8 @@ export const siteRules = Object.freeze({
   // Five seconds to dispatch + 25s transport cap + five seconds of margin.
   inFlightReserveMs: 35_000,
 });
+
+export const defaultScheduling = Object.freeze({ articleWeight: 3, discoveryWeight: 1 });
 
 export interface SitePolicyStore {
   for(domain: string): SitePolicy | undefined;
@@ -43,24 +45,31 @@ export function createSitePolicyStore(records: readonly SiteConfig[]): SitePolic
           throw new Error(`Invalid article adapter host for ${domain}: ${host}`);
       }
     }
+    const scheduling = record.scheduling ?? defaultScheduling;
+    if (![scheduling.articleWeight, scheduling.discoveryWeight].every(n => Number.isInteger(n) && n >= 1 && n <= 100))
+      throw new Error(`Invalid scheduling weights for ${domain}`);
     const sources = new Set<string>();
     for (const source of record.seeds || []) {
       const url = new URL(source.url);
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
         || (url.port && !['80', '443'].includes(url.port))
         || !(url.hostname === domain || url.hostname.endsWith(`.${domain}`))
-        || !['sitemap', 'feed', 'html', 'api'].includes(source.kind)
+        || !['sitemap', 'rss', 'feed', 'html', 'api'].includes(source.kind)
         || (source.kind === 'api' && source.adapter !== 'sina-roll') || sources.has(source.url))
         throw new Error(`Invalid or duplicate discovery source for ${domain}: ${source.url}`);
       if (source.kind === 'api' && (url.hostname !== 'feed.mix.sina.com.cn' || url.pathname !== '/api/roll/get'))
         throw new Error(`sina-roll requires Sina's rolling API: ${source.url}`);
+      if (source.pollEveryMs !== undefined && (!Number.isSafeInteger(source.pollEveryMs) || source.pollEveryMs < 1000 || source.pollEveryMs > 7 * 86400_000))
+        throw new Error(`Invalid pollEveryMs for ${domain}: ${source.url}`);
+      if (source.kind === 'html' && source.adapter !== undefined && !Object.hasOwn(htmlDiscoveryAdapters, source.adapter))
+        throw new Error(`Unknown HTML discovery adapter for ${domain}: ${source.adapter}`);
       sources.add(source.url);
     }
     for (const other of byDomain.keys()) {
       if (domain.endsWith(`.${other}`) || other.endsWith(`.${domain}`))
         throw new Error(`Overlapping policy domains: ${domain}, ${other}`);
     }
-    byDomain.set(domain, Object.freeze({ ...record, enabled: true }));
+    byDomain.set(domain, Object.freeze({ ...record, scheduling, enabled: true }));
   }
   const all = Object.freeze([...byDomain.values()]);
   const active = Object.freeze(all.filter(record => record.enabled));
@@ -82,6 +91,11 @@ export function validateSiteProfiles(store: SitePolicyStore): void {
       if (!profile.body.pathPattern || !profile.body.selector || !profile.body.remove) throw new Error(`Invalid body profile: ${name}`);
       new RegExp(profile.body.pathPattern);
     }
+  }
+  for (const [name, adapter] of Object.entries(htmlDiscoveryAdapters)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name) || typeof adapter.articleLinks !== 'string' || !adapter.articleLinks.trim()
+      || (adapter.paginationLinks !== undefined && (typeof adapter.paginationLinks !== 'string' || !adapter.paginationLinks.trim())))
+      throw new Error(`Invalid HTML discovery adapter: ${name}`);
   }
   const domainTables = { editions, titleSuffixes, listingRoutes };
   for (const [name, table] of Object.entries(domainTables)) {
@@ -121,3 +135,7 @@ export function articleAdapterFor(url: string): CompiledArticleAdapter | undefin
 const configuredOrder = new Map(policy.all().flatMap(site =>
   (site.seeds || []).map((source, index) => [source.url, index] as const)));
 export const configuredSourceIndex = (url: string): number => configuredOrder.get(url) ?? -1;
+
+const configuredSources = new Map(policy.all().flatMap(site =>
+  (site.seeds || []).map(source => [source.url, source] as const)));
+export const configuredSource = (url: string) => configuredSources.get(url);

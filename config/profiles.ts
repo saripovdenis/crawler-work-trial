@@ -1,4 +1,4 @@
-import type { ArticleAdapter, FetchProfile } from '../packages/core/src/types.js';
+import type { ArticleAdapter, FetchProfile, HtmlDiscoveryAdapter } from '../packages/core/src/types.js';
 
 // Plain JSON-compatible values: no functions, RegExp or Set instances.
 // Both profiles use Python curl_cffi; only their HTTP headers differ.
@@ -46,3 +46,7 @@ export const articleAdapters: Readonly<Record<string, ArticleAdapter>> = {
   },
   chosun: { strategy: 'arc-story', hosts: ['www.chosun.com', 'biz.chosun.com'] },
 };
+
+// Optional named HTML discovery selectors. Generic HTML needs no profile.
+// Example shape: { articleLinks: 'main article a[href]', paginationLinks: 'a[rel="next"]' }.
+export const htmlDiscoveryAdapters: Readonly<Record<string, HtmlDiscoveryAdapter>> = {};

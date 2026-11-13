@@ -7,6 +7,7 @@ import { sourcePriority } from '../../../config/discovery.js';
 import { articleAdapterFor } from '../../../config/site-policy.js';
 import type { Article } from './types.js';
 import { discoverApi } from './discovery-api.js';
+import { htmlDiscoveryAdapters } from '../../../config/profiles.js';
 
 export type Found = { url: string; published: string | null };
 export type Source = { url: string; kind: string };
@@ -118,6 +119,14 @@ export function discover(body: string, url: string, kind: string) {
     const next = normalizeUrl(value, url);
     if (next) sources.push({ url: next, kind: type });
   };
+  if (kind.startsWith('html:')) {
+    const adapter = htmlDiscoveryAdapters[kind.slice(5)];
+    if (!adapter) throw new Error(`Unknown HTML discovery adapter: ${kind}`);
+    const $ = load(body);
+    $(adapter.articleLinks).each((_, element) => { const href=$(element).attr('href'); if(href) add(href); });
+    if (adapter.paginationLinks) $(adapter.paginationLinks).each((_, element) => { const href=$(element).attr('href'); if(href) source(href, kind); });
+    return { articles: [...new Map(articles.map(a => [a.url, a])).values()], sources, partial };
+  }
   const isHtml = /<!doctype\s+html|<html[\s>]/i.test(body.slice(0, 2000));
   if (!isHtml && (kind !== 'html' || /^\s*(?:<\?xml[^>]*>\s*)?<(?:rss|feed|urlset|sitemapindex)\b/i.test(body))) {
     let doc;
@@ -156,11 +165,11 @@ export function discover(body: string, url: string, kind: string) {
   } else {
     const $ = load(body);
     $('link[rel="alternate"]').each((_, e) => {
-      if (/rss|atom|xml/i.test($(e).attr('type') || '')) source($(e).attr('href') || '', 'feed');
+      if (/rss|atom|xml/i.test($(e).attr('type') || '')) source($(e).attr('href') || '', 'rss');
     });
     $('a[href]').each((_, e) => {
       const href = $(e).attr('href') || '';
-      if (/rss|atom|feed/i.test(href) && /(?:xml|rss|atom|feed)(?:[/?#.]|$)/i.test(href)) source(href, 'feed');
+      if (/rss|atom|feed/i.test(href) && /(?:xml|rss|atom|feed)(?:[/?#.]|$)/i.test(href)) source(href, 'rss');
       const next = normalizeUrl(href, url);
       if (!next) return;
       const path = new URL(next).pathname;
