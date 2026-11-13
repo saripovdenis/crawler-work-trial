@@ -1,5 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
-import { editions, type ProviderId } from "../../../config/monitor.js";
+import { editions, exaSearch, type ProviderId } from "../../../config/monitor.js";
 import {
   date,
   sighting,
@@ -64,12 +64,12 @@ export function parseResults(
     const data = JSON.parse(body);
     const records = data.results;
     providerCost =
-      typeof data.costDollars?.total === "number"
+      typeof data.costDollars?.total === "number" && Number.isFinite(data.costDollars.total) && data.costDollars.total >= 0
         ? data.costDollars.total
         : null;
     if (!Array.isArray(records)) throw new Error("Invalid provider response");
     rawCount = records.length;
-    truncated = rawCount >= 10;
+    truncated = rawCount >= exaSearch.numResults;
     for (const row of records) {
       const item = sighting(
         site,
@@ -107,11 +107,11 @@ export async function collect(
       headers: { "Content-Type": "application/json", "x-api-key": key! },
       body: JSON.stringify({
         query: `Latest news articles published by ${site}`,
-        type: "auto",
+        type: exaSearch.type,
         includeDomains: [site],
         startPublishedDate: iso(from),
         endPublishedDate: iso(to),
-        numResults: 10,
+        numResults: exaSearch.numResults,
       }),
     };
   }

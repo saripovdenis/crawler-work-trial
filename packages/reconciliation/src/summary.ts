@@ -29,6 +29,7 @@ export function windowSummary(dataset: Row, provider: string) {
     generatedAt: dataset.generatedAt,
     ready: !!dataset.ready,
     provider,
+    cadenceMinutes: dataset.cadenceMinutes,
     heartbeat: dataset.heartbeat ?? null,
     truncated: !!dataset.truncated,
     dispatchFailures: dataset.dispatch?.deadlineFailures ?? 0,

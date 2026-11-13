@@ -1,7 +1,14 @@
 import { comparisonProviders } from "./comparison.js";
 export const providerIds = ["google", "exa"] as const;
 export type ProviderId = (typeof providerIds)[number];
-export const pollInterval = 10 * 60_000;
+export const pollInterval = 60 * 60_000;
+export const exaSearch = { type: "lite", numResults: 100 } as const;
+// Lite: $0.004/search plus $0.001/result above ten (checked 2026-11-13).
+// Missing costs, failures and in-flight requests reserve the full amount.
+export const exaBudget = { perRequestUsd: 0.094, dailyUsd: 45.12 } as const;
+export const exaBudgetAvailable = (spent: number) =>
+  Number.isFinite(spent) && Math.round(spent * 1_000_000) + Math.round(exaBudget.perRequestUsd * 1_000_000)
+    <= Math.round(exaBudget.dailyUsd * 1_000_000);
 // Each steady-state poll overlaps the previous successful poll by one hour.
 export const pollLookback = 60 * 60_000;
 export const editions: Record<
@@ -35,11 +42,11 @@ export function providerConfig(env: NodeJS.ProcessEnv = process.env) {
     key: id === "exa" ? env.EXA_API_KEY : undefined,
     daily: cap(
       `MONITOR_${id.toUpperCase()}_DAILY_LIMIT`,
-      id === "google" ? 3000 : 1000,
+      3000,
     ),
     lifetime: cap(
       `MONITOR_${id.toUpperCase()}_TOTAL_LIMIT`,
-      id === "exa" ? 1000 : 0,
+      0,
     ),
     enabled: Object.hasOwn(comparisonProviders, id) && (id === "google" || !!env.EXA_API_KEY),
     scheduled: true,

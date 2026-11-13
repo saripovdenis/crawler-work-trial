@@ -11,6 +11,8 @@ type Stats = {
   freshness: { count: number; p50: number | null; p90: number | null };
 };
 type Summary = {
+  provider: string;
+  cadenceMinutes: number;
   generatedAt: number;
   ready: boolean;
   heartbeat: number | null;
@@ -46,12 +48,15 @@ const views = {
 
 export default function SummaryPage({ kind }: { kind: Kind }) {
   const [provider, setProvider] = useState(() => selectedComparisonProvider(new URLSearchParams(location.search).get("provider")));
-  const [data, setData] = useState<Summary | null>(null);
+  const [snapshot, setData] = useState<Summary | null>(null);
+  // Never relabel the previous provider's numbers while the new request loads.
+  const data = snapshot?.provider === provider ? snapshot : null;
   const [error, setError] = useState("");
   useEffect(() => {
     const params = new URLSearchParams({ provider });
     history.replaceState(null, "", location.pathname + (Object.keys(comparisonProviders).length > 1 ? "?" + params : ""));
     const controller = new AbortController();
+    setError("");
     let running = false;
     async function load() {
       if (document.hidden || running) return;
@@ -59,8 +64,9 @@ export default function SummaryPage({ kind }: { kind: Kind }) {
       try {
         const r = await fetch("/api/summary?" + params, { signal: controller.signal });
         if (!r.ok) throw new Error(`Data service returned ${r.status}.`);
-        setData(await r.json());
-        setError("");
+        const result: Summary = await r.json();
+        if (result.provider !== provider) throw new Error("Unexpected comparison provider.");
+        if (!controller.signal.aborted) { setData(result); setError(""); }
       } catch (e) {
         if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -81,11 +87,11 @@ export default function SummaryPage({ kind }: { kind: Kind }) {
   const name = comparisonProviders[provider];
   const p = data?.providerState;
   const windows: ({ window: string } & Partial<Stats>)[] = data?.windows ?? ["10m", "1h", "24h"].map((window) => ({ window }));
-  const sites = data?.windows[0]?.domains.map((d) => d.site) ?? [];
+  const sites = snapshot?.windows[0]?.domains.map((d) => d.site) ?? [];
   return (
     <Shell active={kind}>
       <PageHead title={view.title}>
-        <ProviderSelect value={provider} onChange={setProvider} />
+        <ProviderSelect value={provider} onChange={value => { setError(""); setProvider(value); }} />
         <Updated at={data?.generatedAt} staleLimitMs={data?.cache?.staleLimitMs} />
       </PageHead>
       <Alerts
@@ -109,20 +115,21 @@ export default function SummaryPage({ kind }: { kind: Kind }) {
           </div>
         ))}
       </section>
-      {data && (
+      {sites.length > 0 && (
         <table className="tbl split">
           <thead>
             <tr>
               <th>Domain</th>
-              {data.windows.map((w) => <th key={w.window} className="num">{w.window}</th>)}
+              {windows.map((w) => <th key={w.window} className="num">{w.window}</th>)}
             </tr>
           </thead>
           <tbody>
             {sites.map((site, i) => (
               <tr key={site}>
                 <td>{site}</td>
-                {data.windows.map((w) => {
-                  const s = w.domains[i]!;
+                {windows.map((w, column) => {
+                  const s = data?.windows[column]?.domains[i];
+                  if (!s) return <td key={w.window} className="num faint">—<span className="n">&nbsp;</span></td>;
                   const value = kind === "coverage" ? views.coverage.value(s, 0) : view.value(s);
                   return (
                     <td key={w.window} className="num">
@@ -138,6 +145,9 @@ export default function SummaryPage({ kind }: { kind: Kind }) {
           </tbody>
         </table>
       )}
+      <p className="footnote">
+        {name} sample · Polls every {data?.cadenceMinutes ?? 60} minutes. Counts are deduplicated within each publication window, not publisher totals. Short windows are provisional.
+      </p>
     </Shell>
   );
 }
