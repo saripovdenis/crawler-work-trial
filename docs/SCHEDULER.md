@@ -133,11 +133,9 @@ CRAWLER_DATA_DIR=/path/to/data npm run scheduler
 CRAWLER_DATA_DIR=/path/to/data npm run worker
 ```
 
-`npm run dev` and detached `npm start` now start the scheduler only. `npm stop` stops it;
-stop the worker separately. Existing data/Python variables remain. New optional settings:
+`npm run dev` starts the scheduler only; stop the worker separately. Existing data/Python variables remain. New optional settings:
 `SCHEDULER_PORT` (4319), `SCHEDULER_URL` (loopback HTTP only), `FETCH_CONCURRENCY` (4, max 20).
-The scheduler takes the same `crawler.pid` lock as the legacy loop. This release rejects
-standalone probes and legacy-loop startup once the durable tables exist. Worker lock/receipts
+The scheduler takes the `crawler.pid` lock. Worker lock/receipts
 live under `data/receipts`. The worker systemd sandbox makes SQLite inaccessible and only
 allows writes to snapshots/receipts. Scheduler networking is restricted to loopback.
 
@@ -151,9 +149,7 @@ checks and manual inspection; never run the crawler against live sites for valid
 
 ## Deployment and rollback
 
-Upload a committed release to `/opt/exa-crawler/durable-COMMIT` and run
-`sudo bash deploy/deploy-durable.sh /opt/exa-crawler/durable-COMMIT`.
-Preflight installs dependencies, checks types and checks source boundaries while the old loop continues.
+Deploy with the master command in [deploy/README.md](../deploy/README.md).
 Only then: stop the executor (if present), stop the old loop, save `before-cutover.sqlite`,
 install units, start the scheduler, wait for private health, start the worker.
 Dashboard and Caddy are not restarted. No old/new loop overlap is allowed.

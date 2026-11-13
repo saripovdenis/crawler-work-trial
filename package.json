@@ -9,13 +9,9 @@
   "scripts": {
     "dev": "tsx services/crawler/src/scheduler/index.ts",
     "check": "tsc --noEmit",
-    "start": "tsx services/crawler/src/loop/cli.ts start",
-    "stop": "tsx services/crawler/src/loop/cli.ts stop",
-    "status": "tsx services/crawler/src/loop/cli.ts status",
     "dashboard:api": "tsx apps/dashboard/src/api/index.ts",
     "dashboard:build": "npm --prefix apps/dashboard run build",
     "check:boundaries": "node tools/simulator/check-boundaries.mjs",
-    "simulator": "node tools/simulator/server.mjs",
     "scheduler": "tsx services/crawler/src/scheduler/index.ts",
     "worker": "tsx services/crawler/src/fetcher/index.ts",
     "monitor": "node --env-file-if-exists=.env.monitor --import tsx services/monitor/src/index.ts"

@@ -7,7 +7,7 @@ import { acquireLock, atomicWrite } from '../../../../packages/protocol/src/file
 import { Scheduler } from './durable.js';
 import { importAudits } from '../../../../packages/reconciliation/src/audits.js';
 import { schedulerServer } from './server.js';
-// Same lock as the legacy loop: never start both against this database.
+// One scheduler per database: this lock refuses a second instance.
 const release=acquireLock(resolve(dataDir,'crawler.pid'));
 const now=Date.now();
 db.prepare("INSERT OR IGNORE INTO meta(key,value) VALUES ('started',?)").run(new Date(now).toISOString());

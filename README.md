@@ -19,7 +19,7 @@ npm run scheduler  # terminal 1; existing CRAWLER_DATA_DIR
 npm run worker     # terminal 2; same data directory, no SQLite access
 ```
 
-`npm start` / `npm run dev` now start the scheduler only; run the worker separately.
+`npm run dev` starts the scheduler only; run the worker separately.
 The historical single-loop notes below describe the preserved discovery/parsing policies.
 
 ## Repository layout
@@ -27,18 +27,16 @@ The historical single-loop notes below describe the preserved discovery/parsing 
 ```text
 apps/dashboard/src/{pages,api,metrics}  # UI + read-only API, one Node process
 services/crawler/src/
-  loop/                               # legacy loop and scheduler CLI
   scheduler/                          # HTTP coordinator, leases, budgets, pipeline
   fetcher/                             # separate HTTP worker and transports/
 services/monitor/src/                # external provider polls; no publisher HTTP
 services/fetcher-impersonate/          # Python one-request child, requirements.txt
-services/pipeline/src/{sources,newness,extract} # library facades, no daemon
+services/pipeline/src/extract/         # publication-date repair tool, no daemon
 packages/core/src/                    # shared pure parsing, policy, types
 packages/reconciliation/src/          # provider storage, matching, audit inbox
 packages/db/src/                      # base schema, additive migrations, queries
 config/                               # sites, limits, transport profiles
-tools/simulator/                      # offline fixture server and validation
-fixtures/                             # synthetic saved pages
+tools/simulator/                      # static import/outbound boundary check
 deploy/                              # systemd + Caddy (no Docker today)
 docs/                                 # decisions, metrics, architecture, move audit
 ```
@@ -53,7 +51,6 @@ npm run dashboard:build
 CRAWLER_DATA_DIR=/path/to/data npm run dashboard:api # UI + API on 127.0.0.1:4318
 npm run dev                                       # scheduler + archive parsing thread
 npm run worker                                    # separate fetch worker
-npm run simulator                                 # optional loopback fake news site
 ```
 
 The pipeline stays inside the scheduler process; CPU-heavy parsing runs in a built-in worker thread. Shared parsing lives in `packages/core`
@@ -73,7 +70,6 @@ belong in private `.env.monitor`. See [matching, limits and deployment](docs/REC
 
 ```sh
 npm ci                  # only for a fresh checkout
-npm start               # detached scheduler; worker runs separately
 npm run status          # per-site requests, parsing, fresh articles, errors
 tail -f logs/crawler.log # live JSON event stream; Ctrl-C only exits tail
 npm run stop            # graceful shutdown
@@ -155,7 +151,7 @@ npm run dashboard:build
 
 Automated tests are removed by project preference. Do not add or run them unless
 explicitly requested; see [AGENTS.md](AGENTS.md). Use builds, static checks and manual
-inspection. `npm run simulator` serves local sample pages for manual work.
+inspection.
 
 Set `CRAWLER_DATA_DIR` in the process environment to change storage; `.env` is not auto-loaded.
 Do not run multiple instances with different data directories against the same sites:
@@ -173,7 +169,7 @@ Install Python 3.10+ dependencies in a virtual environment:
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r services/fetcher-impersonate/requirements.txt
-CRAWLER_PYTHON="$PWD/.venv/bin/python" npm start
+CRAWLER_PYTHON="$PWD/.venv/bin/python" npm run worker
 ```
 
 `services/crawler/src/scheduler/budget.ts` atomically checks and reserves each request with SQLite
@@ -185,34 +181,6 @@ No deployment or poll reset starts a new setup window.
 
 Deploy using [deploy/README.md](deploy/README.md). The persistent database and request budget stay in place.
 
-## Bounded transport experiment
-
-`services/crawler/src/fetcher/probe.ts` compares Node fetch, curl_cffi with crawler headers, and curl_cffi's
-Chrome 136 profile on Hoodline and El Economista. It uses the existing live SQLite
-ledger and limiter, records `probe-*` requests and raw response snapshots, and writes
-results to `data/probes/*.jsonl`. It does not change crawler transports or insert
-experimental pages into article/delay metrics.
-
-The original v0 worker only serialized reservations within its process. The diagnostic
-retains conservative guards and refuses sites with healthy sources, pending candidates, unfinished
-requests, or a poll scheduled within its ten-minute deadline plus a minute's margin.
-It requires unexpired cached robots policies, checks every redirect, caps each run
-at six requests per site, and stops on 429/503. Run only one probe process at a time.
-This is a diagnostic for idle blocked sites, not a production fallback scheduler.
-
-Install the isolated Python dependency with `pip install -r services/fetcher-impersonate/requirements.txt`,
-then run from the project directory:
-
-```sh
-CRAWLER_DATA_DIR=/path/to/live/data PROBE_PYTHON=/path/to/venv/bin/python \
-  ./node_modules/.bin/tsx services/crawler/src/fetcher/probe.ts
-# Or one profile and URL (the same safety checks still apply):
-CRAWLER_DATA_DIR=/path/to/live/data PROBE_PYTHON=/path/to/venv/bin/python \
-  ./node_modules/.bin/tsx services/crawler/src/fetcher/probe.ts cffi-chrome https://hoodline.com/
-```
-
-Both curl variants disable automatic redirects and retries. The Chrome profile
-changes HTTP/TLS behavior and browser headers; it does not execute JavaScript.
 Judge success by usable page content and extraction, not status 200 alone.
 
 On 2026-11-12, from the existing GCP VM, both sites returned 403 to Node (including

@@ -135,11 +135,8 @@ RECONCILER_DB=data/reconciler.sqlite npm run scheduler
 `GET /api/reconciliation?window=24h&site=bbc.com&provider=exa` is read-only.
 Unknown filters return 400. `/reconciliation` is the public dashboard page.
 
-Production: run type and boundary checks and build the frontend locally, then upload a clean release plus its dist,
-install credentials in `/etc/exa-reconciler.env` (root-owned 0600), then run
-`sudo bash deploy/deploy-reconciler.sh /opt/exa-crawler/reconcile-COMMIT`.
-The script preserves active unit settings, updates scheduler/API code, and adds
-`exa-reconciler`. The existing worker, Caddy, ports and URLs remain unchanged.
+Production: credentials live in `/etc/exa-reconciler.env` (root-owned 0600); deploy with the master
+command in [deploy/README.md](../deploy/README.md). The existing worker, Caddy, ports and URLs remain unchanged.
 The scheduler/API each restart once by default. Pass `--dashboard-monitor-only`
 for monitor/UI-only changes: restart only the dashboard and reconciler, preserving
 scheduler and worker PIDs. Both SQLite databases are backed up first.
