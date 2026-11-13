@@ -132,10 +132,6 @@ export function articleAdapterFor(url: string): CompiledArticleAdapter | undefin
   const adapter = site?.articleAdapter ? compiledArticles.get(site.articleAdapter) : undefined;
   return adapter && (!adapter.hosts || adapter.hosts.includes(hostname)) ? adapter : undefined;
 }
-const configuredOrder = new Map(policy.all().flatMap(site =>
-  (site.seeds || []).map((source, index) => [source.url, index] as const)));
-export const configuredSourceIndex = (url: string): number => configuredOrder.get(url) ?? -1;
-
 const configuredSources = new Map(policy.all().flatMap(site =>
   (site.seeds || []).map(source => [source.url, source] as const)));
 export const configuredSource = (url: string) => configuredSources.get(url);

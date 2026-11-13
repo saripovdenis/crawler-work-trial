@@ -79,7 +79,7 @@ invalidates extraction caches; articles are not refetched just to warm them.
 
 ## Seeds
 
-`seeds` is an optional ordered list on each site. Supported kinds are
+`seeds` is an optional list on each site. Supported kinds are
 `sitemap` (including news sitemaps and indexes), `rss` (RSS/Atom), `html`
 with an optional named adapter, and `api` with a required named adapter. Legacy
 `feed` configuration and stored rows remain supported as an alias for `rss`. For example:
@@ -97,7 +97,9 @@ with an optional named adapter, and `api` with a required named adapter. Legacy
 
 The scheduler seeds these URLs into `sources`; sites with no configured sources
 start at `https://www.<domain>/`. Sources participate in the same weighted scheduling from their first attempt.
-Oldest-due discovery tasks run first; source score and seed order break ties.
+Discovery tasks rotate in stable task-ID order, starting after the last reserved
+discovery task and wrapping to the beginning. Sources that are not due, are still
+processing, or have an active robots cooldown are skipped without a request.
 Robots checks, request limits, cooldowns and existing leases still apply. Sources
 already polled or failed resume their stored schedule; restarting does not replay a bootstrap.
 Old and automatically discovered source rows remain available. Removing a seed
@@ -193,6 +195,15 @@ hops. Robots requests count toward their parent's category. Duplicate claims and
 parsing completions do not consume turns. The old `scheduler_domains` counter is
 retained for compatibility and no longer chooses the request category. All HTTP
 attempts still use the existing single per-domain budget and robots delay.
+
+The independent seed cursor is stored as `discovery-cursor:<domain>`. Only a
+reserved discovery request advances it, in the same transaction as its budget
+charge. Article requests, robots prerequisites, empty scans, duplicate claims and
+parse completions do not move it. Failed requests still consume their turn;
+redirect hops re-enter the same rotation and each uses a request slot. Newly
+discovered sources join the ring by task ID; removing a source or restarting does
+not reset the cursor. Existing intervals and error/low-yield cooldowns remain in
+effect. This change adds no adaptive polling policy or schema migration.
 
 New explicit RSS seeds (some URLs were already auto-discovered):
 
