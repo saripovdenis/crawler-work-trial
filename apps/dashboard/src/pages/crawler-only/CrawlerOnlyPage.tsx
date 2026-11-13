@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { ProviderSelect } from "@/components/ProviderSelect";
+import { comparisonProviders, selectedComparisonProvider } from "../../../../../config/comparison";
 import { Sidebar } from "@/components/Sidebar";
 import "../App.css";
 import "./crawler-only.css";
@@ -9,8 +11,6 @@ type CrawlerOnlySnapshot = {
   domains: (StatusCounts & { site: string })[];
 };
 
-// Keep provider selection in the API; this page currently compares Google only.
-const comparator = { id: "google", label: "Google News" } as const;
 const windows = ["1h", "24h", "7d"];
 const number = (value: number) => value.toLocaleString("en-US");
 const percent = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(1)}%`;
@@ -21,6 +21,7 @@ export default function CrawlerOnlyPage() {
     const value = new URLSearchParams(location.search).get("window") || "24h";
     return windows.includes(value) ? value : "24h";
   });
+  const [provider, setProvider] = useState(() => selectedComparisonProvider(new URLSearchParams(location.search).get("provider")));
   const [data, setData] = useState<CrawlerOnlySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -28,7 +29,7 @@ export default function CrawlerOnlyPage() {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    history.replaceState(null, "", "/crawler-only?" + new URLSearchParams({ window }));
+    history.replaceState(null, "", "/crawler-only?" + new URLSearchParams({ window, provider }));
     const controller = new AbortController();
     let running = false;
     setData(null);
@@ -38,7 +39,7 @@ export default function CrawlerOnlyPage() {
       running = true;
       setLoading(true);
       try {
-        const params = new URLSearchParams({ window, provider: comparator.id });
+        const params = new URLSearchParams({ window, provider });
         const response = await fetch("/api/crawler-only?" + params, {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
         });
@@ -59,7 +60,7 @@ export default function CrawlerOnlyPage() {
     const timer = setInterval(visibleLoad, 30000);
     document.addEventListener("visibilitychange", visibleLoad);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", visibleLoad); };
-  }, [window, refresh]);
+  }, [window, provider, refresh]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10000);
@@ -75,10 +76,14 @@ export default function CrawlerOnlyPage() {
     <Sidebar active="crawler-only" />
     <main><div className="crawler-content">
       <header className="crawler-heading">
-        <div><h1>Crawler-only</h1><p>Our articles absent from {comparator.label} samples.</p></div>
+        <div><h1>Crawler-only</h1><p>Our articles absent from {comparisonProviders[provider]} samples.</p></div>
+        <div className="crawler-filters">
+        <ProviderSelect value={provider} onChange={setProvider} />
+        <label>Published within
         <select aria-label="Publication window" value={window} onChange={event => setWindow(event.target.value)}>
           <option value="1h">Last hour · provisional</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option>
-        </select>
+        </select></label>
+        </div>
       </header>
       <section className="crawler-total" aria-label="Overall crawler-only percentage" aria-busy={loading}>
         <strong>{percent(current?.summary.percentage)}</strong>

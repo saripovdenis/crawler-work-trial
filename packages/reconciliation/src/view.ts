@@ -1,7 +1,8 @@
 import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { LruCache } from "../../core/src/lru.js";
 import { sites } from "../../../config/sites.js";
-import { providerIds, pollInterval } from "../../../config/monitor.js";
+import { comparisonProviders, defaultComparisonProvider } from "../../../config/comparison.js";
+import { pollInterval } from "../../../config/monitor.js";
 import { urlKey } from "./identity.js";
 import { fetchedArticles } from "./timing.js";
 import { dispatchSummary } from "./dispatch.js";
@@ -14,10 +15,10 @@ export const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 60
 export const ARTICLE_SELECT = `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`;
 export function coverageQuery(params: URLSearchParams) {
   const window = params.get("window") || "1h", site = params.get("site") || "",
-    provider = params.get("provider") || "", matches = params.get("matches") || "all",
+    provider = params.get("provider") || defaultComparisonProvider, matches = params.get("matches") || "all",
     page = Number(params.get("page") || 1);
   if (!Object.hasOwn(windows, window) || (site && !sites.some(s => s.domain === site))
-    || (provider && !providerIds.includes(provider as any)) || !["all", "matched", "unmatched"].includes(matches)
+    || !Object.hasOwn(comparisonProviders, provider) || !["all", "matched", "unmatched"].includes(matches)
     || !Number.isInteger(page) || page < 1 || page > 1000) throw new Error("Invalid reconciliation filter");
   return { window: window as keyof typeof windows, site, provider, matches, page };
 }
@@ -51,9 +52,12 @@ export class CoverageReader {
     return pageCoverage(this.dataset(window,site,provider,now,includeFreshness),matches,page);
   }
   dataset(window: keyof typeof windows, site: string, provider: string, now: number, includeFreshness = false) {
+    provider ||= defaultComparisonProvider;
+    if (!Object.hasOwn(comparisonProviders, provider)) throw new Error("Invalid reconciliation provider");
     const start = now - windows[window];
     const base = {
       window,
+      provider,
       windowStart: start,
       windowTimestamp: "provider_published_at",
       unknownPublication: 0,
@@ -174,7 +178,7 @@ export class CoverageReader {
           site: s.domain,
           ...count(groups.filter((g) => g.site === s.domain)),
           counts: Object.fromEntries(
-            providerIds.map((p) => [
+            [provider].map((p) => [
               p,
               groups.filter(
                 (g) => g.site === s.domain && g.providers.includes(p),
@@ -184,9 +188,9 @@ export class CoverageReader {
         }));
       const providers = monitor
         .prepare(
-          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p WHERE p.provider IN ('google','exa') ORDER BY p.provider`,
+          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p WHERE p.provider=? ORDER BY p.provider`,
         )
-        .all(now - 86400000) as Row[];
+        .all(now - 86400000, provider) as Row[];
       for (const p of providers) {
         p.quota_exhausted =
           (p.used_today || 0) >= p.daily_limit ||
@@ -213,7 +217,7 @@ export class CoverageReader {
         ready: true,
         summary: count(groups),
         dispatch: dispatchSummary(crawler,now,site),
-        freshness: includeFreshness ? summarizeFreshness(groups, matrix.map(r => r.site), provider ? [provider] : providerIds) : undefined,
+        freshness: includeFreshness ? summarizeFreshness(groups, matrix.map(r => r.site), [provider]) : undefined,
         unfilteredSummary: count(allGroups),
         unknownPublication,
         excludedNonArticles: excludedGroups.length,

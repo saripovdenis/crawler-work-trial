@@ -1,3 +1,4 @@
+import { comparisonProviders } from "./comparison.js";
 export const providerIds = ["google", "exa"] as const;
 export type ProviderId = (typeof providerIds)[number];
 export const pollInterval = 10 * 60_000;
@@ -40,7 +41,7 @@ export function providerConfig(env: NodeJS.ProcessEnv = process.env) {
       `MONITOR_${id.toUpperCase()}_TOTAL_LIMIT`,
       id === "exa" ? 1000 : 0,
     ),
-    enabled: id === "google" || !!env.EXA_API_KEY,
+    enabled: Object.hasOwn(comparisonProviders, id) && (id === "google" || !!env.EXA_API_KEY),
     scheduled: true,
   }));
 }

@@ -1,3 +1,5 @@
+import { ProviderSelect } from "@/components/ProviderSelect";
+import { comparisonProviders as names, selectedComparisonProvider } from "../../../../../config/comparison";
 import { Sidebar } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import { useEffect, useState } from "react";
@@ -7,10 +9,6 @@ import "../charts/charts.css";
 import "../reconciliation/reconciliation.css";
 import "./freshness.css";
 type Row = Record<string, any>;
-const names: Record<string, string> = {
-  google: "Google News",
-  exa: "Exa",
-};
 const number = (v: number) => new Intl.NumberFormat("en-US").format(v);
 const time = (v: number | null) =>
   v ? new Date(v).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "—";
@@ -24,13 +22,14 @@ export default function FreshnessPage() {
   const query = new URLSearchParams(location.search);
   const [window, setWindow] = useState(query.get("window") || "1h"),
     [site, setSite] = useState(query.get("site") || ""),
+    [provider, setProvider] = useState(selectedComparisonProvider(query.get("provider"))),
     [matches, setMatches] = useState(query.get("matches") || "all"),
     [page, setPage] = useState(Number(query.get("page")) || 1);
   const [data, setData] = useState<Row | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   useEffect(() => {
-    const params = new URLSearchParams({ window });
+    const params = new URLSearchParams({ window, provider });
     if (site) params.set("site", site);
     if (matches !== "all") params.set("matches", matches);
     if (page > 1) params.set("page", String(page));
@@ -63,7 +62,7 @@ export default function FreshnessPage() {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
     };
-  }, [window, site, matches, page]);
+  }, [window, site, provider, matches, page]);
   const summary = data?.freshness?.overall;
   const percentiles = summary?.published;
   return (
@@ -106,6 +105,7 @@ export default function FreshnessPage() {
                 ))}
               </select>
             </label>
+            <ProviderSelect value={provider} onChange={value => { setProvider(value); setPage(1); }} />
             <span className="reconcile-updated">
               Updated {time(data?.generatedAt || null)}
               <SnapshotAge generatedAt={data?.generatedAt} cache={data?.cache} />

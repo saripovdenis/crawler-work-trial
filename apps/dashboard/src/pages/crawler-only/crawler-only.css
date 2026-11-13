@@ -29,3 +29,7 @@
 
 .crawler-domains th:first-child { padding-left: 0 !important; }
 .crawler-domains th:last-child, .crawler-domains td:last-child { padding-right: 0 !important; }
+
+.crawler-filters { display: flex; gap: 12px; flex-wrap: wrap; }
+.crawler-filters label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #737783; }
+.crawler-filters select { font-size: 13px; color: #22242d; }

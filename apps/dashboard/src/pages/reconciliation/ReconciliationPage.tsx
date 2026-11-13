@@ -1,3 +1,5 @@
+import { ProviderSelect } from "@/components/ProviderSelect";
+import { comparisonProviders as names, selectedComparisonProvider } from "../../../../../config/comparison";
 import { Sidebar } from "@/components/Sidebar";
 import { SnapshotAge } from "@/components/SnapshotAge";
 import { useEffect, useState } from "react";
@@ -6,10 +8,6 @@ import "../App.css";
 import "../charts/charts.css";
 import "./reconciliation.css";
 type Row = Record<string, any>;
-const names: Record<string, string> = {
-  google: "Google News",
-  exa: "Exa",
-};
 const number = (v: number) => new Intl.NumberFormat("en-US").format(v);
 const time = (v: number | null) =>
   v ? new Date(v).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "—";
@@ -19,7 +17,7 @@ export default function ReconciliationPage() {
   const query = new URLSearchParams(location.search);
   const [window, setWindow] = useState(query.get("window") || "1h"),
     [site, setSite] = useState(query.get("site") || ""),
-    [provider, setProvider] = useState(query.get("provider") || ""),
+    [provider, setProvider] = useState(selectedComparisonProvider(query.get("provider"))),
     [matches] = useState(query.get("matches") || "all"),
     [page, setPage] = useState(Number(query.get("page")) || 1);
   const [data, setData] = useState<Row | null>(null),
@@ -102,23 +100,7 @@ export default function ReconciliationPage() {
                 ))}
               </select>
             </label>
-            <label>
-              Provider
-              <select
-                value={provider}
-                onChange={(e) => {
-                  setProvider(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">All providers</option>
-                {Object.entries(names).map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ProviderSelect value={provider} onChange={value => { setProvider(value); setPage(1); }} />
             <span className="reconcile-updated">
               Updated {time(data?.generatedAt || null)}
               <SnapshotAge generatedAt={data?.generatedAt} cache={data?.cache} />
@@ -195,13 +177,6 @@ export default function ReconciliationPage() {
               <summary>Review excluded pages ({data.excludedNonArticles}) · unfiltered coverage {percent(data.unfilteredSummary?.percentage)}</summary>
               <ul>{data.excludedGroups.map((g: Row) => <li key={g.url}><a href={g.url} target="_blank" rel="noreferrer">{g.title || g.url}</a> · {g.reason.replaceAll('_',' ')}</li>)}</ul>
             </details>
-          )}
-          {summary && !provider && (
-            <p className="reconcile-definition">
-              <strong>Combined sample: {number(summary.total)} unique articles.</strong>{" "}
-              {number(summary.googleOnly)} Google News only + {number(summary.exaOnly)} Exa only + {number(summary.shared)} found by both.
-              Different indexes, rankings and result limits produce different samples. Shared articles count once.
-            </p>
           )}
           <div className="provider-grid">
             {Object.entries(names).map(([id, name]) => {

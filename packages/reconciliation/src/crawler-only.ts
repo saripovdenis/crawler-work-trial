@@ -1,4 +1,5 @@
 import { DatabaseSync, hasTable } from '../../pg/src/sync.js';
+import { comparisonProviders, defaultComparisonProvider } from '../../../config/comparison.js';
 import { sites } from '../../../config/sites.js';
 import { pollInterval, pollLookback, providerIds, type ProviderId } from '../../../config/monitor.js';
 import { ARTICLE_SELECT, matchSightings, windows } from './view.js';
@@ -43,10 +44,10 @@ export type CrawlerOnlySnapshot = {
 
 export function crawlerOnlyQuery(params: URLSearchParams) {
   const window = params.get('window') || '24h', site = params.get('site') || '',
-    provider = params.get('provider') || 'google', show = params.get('show') || 'all',
+    provider = params.get('provider') || defaultComparisonProvider, show = params.get('show') || 'all',
     page = Number(params.get('page') || 1);
   if (!['1h','24h','7d'].includes(window) || (site && !sites.some(s => s.domain === site))
-    || !['both',...providerIds].includes(provider) || !statuses.includes(show as CrawlerOnlyShow)
+    || !Object.hasOwn(comparisonProviders, provider) || !statuses.includes(show as CrawlerOnlyShow)
     || !Number.isInteger(page) || page < 1 || page > rowLimit / 50)
     throw new Error('Invalid crawler-only filter');
   return { window: window as CrawlerOnlyWindow, site, provider: provider as CrawlerOnlyProvider,
@@ -103,6 +104,7 @@ function overall(evidence: ProviderEvidence[], hasFetch: boolean): CrawlerOnlySt
 export class CrawlerOnlyReader {
   constructor(readonly monitorPath: string, readonly crawlerPath: string) {}
   dataset(window: CrawlerOnlyWindow, site: string, provider: CrawlerOnlyProvider, now: number): CrawlerOnlySnapshot {
+    if (!Object.hasOwn(comparisonProviders, provider)) throw new Error('Invalid crawler-only provider');
     // The live hour measures sample absence so far; longer windows retain the grace period.
     const minimumAge = window === '1h' ? 0 : gracePeriod;
     const start = now - windows[window], selected: readonly ProviderId[] = provider === 'both' ? providerIds : [provider];

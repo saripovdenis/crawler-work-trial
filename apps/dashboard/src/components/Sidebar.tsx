@@ -39,13 +39,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <a className="wordmark" href="/" aria-label="Crawler observatory home">
-        exa<span className="wordmark-dot">*</span>
-        <span className="brand-divider" />
-        <span className="brand-project">
-          crawler
-          <br />
-          observatory
-        </span>
+        Crawler
       </a>
       <nav aria-label="Dashboard">
         {items.map((item) => (

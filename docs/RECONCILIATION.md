@@ -1,3 +1,10 @@
+> Current provider policy: Google News is the only active comparator and scheduled
+> provider. All three comparison pages retain a provider selector with Google News
+> as its sole option. `config/comparison.ts` controls availability. Unspecified API
+> providers default to Google; unavailable providers return 400. Old page URLs
+> selecting a removed provider reopen on Google. Historical provider rows and
+> quota ledgers remain stored. New Exa polls are disabled, even with a saved key.
+
 # External coverage reconciliation
 
 > Deployment policy: only current `master` through
