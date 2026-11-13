@@ -102,7 +102,7 @@ export class DashboardCache {
   }
   async get(method:string,params=new URLSearchParams(),id?:number) {
     const query=new URLSearchParams(params);query.sort();
-    const args=method==='detail'?{id}:{query:query.toString()};
+    const args=method==='detail'||method==='articleDetail'?{id}:{query:query.toString()};
     const slow=method==='overview';
     return this.cached(method+':'+JSON.stringify(args),method,args,slow?30_000:10_000,slow?120_000:60_000);
   }

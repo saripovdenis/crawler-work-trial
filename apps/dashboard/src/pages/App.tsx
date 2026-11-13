@@ -30,6 +30,49 @@ function Status({ row }: { row: Row }) {
   return <span className={`code ${tone}`}>{row.error ? "error" : row.status || "…"}</span>;
 }
 
+function ArticleDetails({ row }: { row: Row }) {
+  const [article, setArticle] = useState<Row | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    setArticle(null); setError(""); setCopied(false);
+    json(`/api/articles/${row.id}`, controller.signal)
+      .then(value => { if (!controller.signal.aborted) setArticle(value.article); })
+      .catch(() => { if (!controller.signal.aborted) setError("Could not load the stored article."); });
+    return () => controller.abort();
+  }, [row.id, retry]);
+  const storedJson = article ? JSON.stringify(article, null, 2) : "";
+  return <>
+    <h2 dir="auto">{article?.title || row.title}</h2>
+    <a className="link url-full" href={safeUrl(article?.canonicalUrl || row.url)} target="_blank" rel="noopener noreferrer">Open original ↗</a>
+    {(article?.description || row.description) && <p dir="auto">{article?.description ?? row.description}</p>}
+    <dl>
+      <dt>Website</dt><dd>{row.domain}</dd>
+      <dt>Classification</dt><dd>{article?.classification || row.classification}</dd>
+      <dt>Published</dt><dd>{fullDate(article?.publishedAt || row.published)}</dd>
+      <dt>Modified</dt><dd>{article ? fullDate(article.modifiedAt) : "Loading…"}</dd>
+      <dt>First discovered</dt><dd>{fullDate(article?.discoveredAt || row.discovered)}</dd>
+      <dt>Parsed</dt><dd>{fullDate(row.fetched)}</dd>
+      <dt>Date evidence</dt><dd>{article?.dateSource || row.dateSource || "Unknown"}</dd>
+      <dt>Extracted text</dt><dd>{number(article ? article.text?.length : row.textLength)} characters</dd>
+    </dl>
+    <section aria-label="Stored article JSON">
+      <div className="article-json-heading">
+        <h3>Stored JSON</h3>
+        {article && <button onClick={async () => {
+          try { await navigator.clipboard.writeText(storedJson); setCopied(true); }
+          catch { setError("Copy failed. Select the JSON below to copy it."); }
+        }}>{copied ? "Copied" : "Copy JSON"}</button>}
+      </div>
+      {error && <p role="alert">{error} {!article && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}</p>}
+      {!article && !error && <p role="status">Loading stored JSON…</p>}
+      {article && <pre className="article-json" tabIndex={0} aria-label="Complete stored article JSON"><code>{storedJson}</code></pre>}
+    </section>
+  </>;
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const view = new URLSearchParams(location.search).get("view");
@@ -276,20 +319,7 @@ export default function App() {
           {detail && (
             <div className="detail">
               {detail.type === "article" ? (
-                <>
-                  <h2 dir="auto">{detail.title}</h2>
-                  {detail.description && <p dir="auto">{detail.description}</p>}
-                  <dl>
-                    <dt>Website</dt><dd>{detail.domain}</dd>
-                    <dt>Classification</dt><dd>{detail.classification}</dd>
-                    <dt>Published</dt><dd>{fullDate(detail.published)}</dd>
-                    <dt>First discovered</dt><dd>{fullDate(detail.discovered)}</dd>
-                    <dt>Fetched</dt><dd>{fullDate(detail.fetched)}</dd>
-                    <dt>Date evidence</dt><dd>{detail.dateSource || "Unknown"}</dd>
-                    <dt>Extracted text</dt><dd>{number(detail.textLength)} characters</dd>
-                  </dl>
-                  <a className="link" href={safeUrl(detail.url)} target="_blank" rel="noreferrer">Read original ↗</a>
-                </>
+                <ArticleDetails key={detail.id} row={detail} />
               ) : (
                 <>
                   <a className="link url-full" href={safeUrl(detail.url)} target="_blank" rel="noreferrer">{detail.url} ↗</a>

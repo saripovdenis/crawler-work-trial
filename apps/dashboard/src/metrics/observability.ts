@@ -207,6 +207,11 @@ export class Observatory {
       nextCursor: rows.length === 60 ? rows.at(-1)!.id : null,
     };
   }
+  articleDetail(id: number) {
+    if (!Number.isSafeInteger(id) || id < 1) throw new Error("Invalid article id");
+    const row = this.one("SELECT rowid AS id,payload FROM articles WHERE rowid=?", id);
+    return row.id ? { id: row.id, article: JSON.parse(row.payload) } : null;
+  }
   sources(params: URLSearchParams) {
     const { domain } = this.filter(params);
     return {

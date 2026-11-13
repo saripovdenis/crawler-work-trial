@@ -17,6 +17,7 @@ parentPort!.on('message',async ({id,method,args})=> {
     else if(method==='summary') value=windowSummary(coverage.dataset('24h','',args.provider,startedAt),args.provider);
     else if(method==='detail') value=await observation.requestDetail(args.id);
     else if(method==='requests') value=observation.requests(new URLSearchParams(args.query));
+    else if(method==='articleDetail') value=observation.articleDetail(args.id);
     else if(method==='articles') value=observation.articles(new URLSearchParams(args.query));
     else if(method==='sources') value=observation.sources(new URLSearchParams(args.query));
     else throw new Error('Invalid dashboard query');

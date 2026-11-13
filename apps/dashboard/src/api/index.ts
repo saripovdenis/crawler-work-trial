@@ -51,6 +51,8 @@ const server = createServer(async (req, res) => {
         result = await cache.get('requests',url.searchParams);
       else if (url.pathname === "/api/articles")
         result = await cache.get('articles',url.searchParams);
+      else if (/^\/api\/articles\/\d+$/.test(url.pathname))
+        result = await cache.get('articleDetail',new URLSearchParams(),Number(url.pathname.split('/').at(-1)));
       else if (url.pathname === "/api/sources")
         result = await cache.get('sources',url.searchParams);
       else if (/^\/api\/requests\/\d+$/.test(url.pathname)) {
