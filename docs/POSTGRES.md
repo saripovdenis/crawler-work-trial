@@ -1,7 +1,10 @@
 # PostgreSQL storage
 
-The scheduler, dashboard and reconciler keep their rows in PostgreSQL, schema
-`crawl_budget`. Table and column names are the ones the SQLite files used;
+The scheduler, dashboard and reconciler keep their rows in one PostgreSQL
+database with two schemas. `crawl_budget` holds the crawler's rows. `reconciler`
+holds the external sample: `provider_state`, `provider_schedule`,
+`provider_runs`, `external_sightings`, `monitor_meta` and `audit_candidates`.
+Every session resolves names in both. Table and column names are the ones the SQLite files used;
 millisecond timestamps are still integers and `rowid` is an ordinary column.
 
 `packages/pg/src/sync.ts` is a synchronous handle with the same small surface as

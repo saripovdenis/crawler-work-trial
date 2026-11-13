@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy the crawler and reconciler SQLite files into the PostgreSQL crawl_budget schema.
+"""Copy the crawler and reconciler SQLite files into the PostgreSQL crawl_budget and reconciler schemas.
 
 The SQLite files are opened read-only and never changed. The schema must
 already exist and be empty. PSQL may override the psql command line.
@@ -15,6 +15,8 @@ ROWID = {'candidates', 'articles', 'audit_candidates'}
 SERIAL = {'requests': 'id', 'crawl_tasks': 'id', 'provider_runs': 'id', 'external_sightings': 'id',
           'candidates': 'rowid', 'articles': 'rowid', 'audit_candidates': 'rowid'}
 
+def schema(table): return 'reconciler' if table in MONITOR else 'crawl_budget'
+
 def psql(sql):
     return subprocess.run(PSQL + ['-At', '-c', sql], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -24,7 +26,7 @@ def copy(db, table):
     info = db.execute(f'PRAGMA table_info({table})').fetchall()
     names = (['rowid'] if table in ROWID else []) + [column[1] for column in info]
     real = {column[1] for column in info if 'REAL' in (column[2] or '').upper()}
-    process = subprocess.Popen(PSQL + ['-c', f"COPY crawl_budget.{table} ({','.join(names)}) FROM STDIN WITH (FORMAT csv, NULL '\\N')"], stdin=subprocess.PIPE)
+    process = subprocess.Popen(PSQL + ['-c', f"COPY {schema(table)}.{table} ({','.join(names)}) FROM STDIN WITH (FORMAT csv, NULL '\\N')"], stdin=subprocess.PIPE)
     writer = csv.writer(io.TextIOWrapper(process.stdin, encoding='utf-8', newline='', write_through=True))
     count = 0
     for row in db.execute(f"SELECT {','.join(names)} FROM {table}"):
@@ -38,11 +40,11 @@ def copy(db, table):
         writer.writerow(out); count += 1
     process.stdin.close()
     if process.wait() != 0: raise SystemExit(f'{table}: COPY failed')
-    loaded = int(psql(f'SELECT count(*) FROM crawl_budget.{table}'))
+    loaded = int(psql(f'SELECT count(*) FROM {schema(table)}.{table}'))
     if loaded != count: raise SystemExit(f'{table}: source has {count} rows, PostgreSQL has {loaded}')
     if table in SERIAL:
         column = SERIAL[table]
-        psql(f"SELECT setval(pg_get_serial_sequence('crawl_budget.{table}','{column}'), coalesce(max({column}),0)+1, false) FROM crawl_budget.{table}")
+        psql(f"SELECT setval(pg_get_serial_sequence('{schema(table)}.{table}','{column}'), coalesce(max({column}),0)+1, false) FROM {schema(table)}.{table}")
     print(f'{table}: {count} rows')
 
 def main():

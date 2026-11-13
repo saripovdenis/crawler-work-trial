@@ -12,7 +12,7 @@ pg.types.setTypeParser(16, value => (value === 't' ? 1 : 0));
 const client = new pg.Client({ application_name: 'exa-crawler' });
 client.on('error', error => console.error('PostgreSQL connection error', String(error)));
 const ready = client.connect().then(() => client.query(
-  'SET search_path TO crawl_budget' + (readOnly ? '; SET default_transaction_read_only=on' : '')));
+  'SET search_path TO crawl_budget, reconciler' + (readOnly ? '; SET default_transaction_read_only=on' : '')));
 ready.catch(() => {});
 port.on('message', async message => {
   let reply;

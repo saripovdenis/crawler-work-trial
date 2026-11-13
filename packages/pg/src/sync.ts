@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 // Synchronous PostgreSQL handle with the small node:sqlite surface this code
 // uses. Connection settings come from the standard PG* environment variables;
-// every handle works in the crawl_budget schema.
+// every handle resolves names in the crawl_budget and reconciler schemas.
 type Row = Record<string, any>;
 const keys: Record<string, string> = { meta: 'key', monitor_meta: 'key', robots: 'origin' };
 const columns: Record<string, string[]> = { monitor_meta: ['key', 'value'] };
@@ -14,7 +14,7 @@ export function translate(sql: string, placeholders = true): string {
   let text = sql.replace(/\bINDEXED BY \w+/gi, '').replace(/\bCROSS JOIN\b/gi, 'JOIN')
     .replace(/\bBEGIN IMMEDIATE\b/gi, 'BEGIN')
     .replace(/CAST\(([^()]+) AS INTEGER\)/gi, 'CAST($1 AS BIGINT)')
-    .replace(/\bsqlite_master WHERE name=/gi, 'information_schema.tables WHERE table_schema=current_schema() AND table_name=')
+    .replace(/\bsqlite_master WHERE name=/gi, 'information_schema.tables WHERE table_schema=ANY(current_schemas(false)) AND table_name=')
     .replace(/\bAS ([a-z]+[A-Z]\w*)/g, 'AS "$1"');
   const replace = /^\s*INSERT OR REPLACE INTO (\w+)\s*(?:\(([^)]*)\))?/i.exec(text);
   if (/^\s*INSERT OR IGNORE INTO/i.test(text)) text = text.replace(/INSERT OR IGNORE INTO/i, 'INSERT INTO').replace(/;?\s*$/, '') + ' ON CONFLICT DO NOTHING';
@@ -94,7 +94,7 @@ export class DatabaseSync {
     }
   }
   tableExists(name: string) {
-    return !!this.prepare('SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=?').get(name);
+    return !!this.prepare('SELECT 1 FROM information_schema.tables WHERE table_schema=ANY(current_schemas(false)) AND table_name=?').get(name);
   }
   close() {
     if (this.closed) return;

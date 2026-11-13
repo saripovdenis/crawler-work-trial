@@ -43,7 +43,7 @@ rollback() {
     echo 'Cutover failed; restoring previous service units. Database and budget history are not rolled back.' >&2
     # A failed first PostgreSQL release leaves SQLite as the live store. Drop
     # the partial copy so the next attempt loads it again from current SQLite.
-    if (( migrated == 1 )) && [[ ! -e "$marker" ]]; then pg -d crawler -c 'DROP SCHEMA IF EXISTS crawl_budget CASCADE' || true; fi
+    if (( migrated == 1 )) && [[ ! -e "$marker" ]]; then pg -d crawler -c 'DROP SCHEMA IF EXISTS crawl_budget CASCADE' -c 'DROP SCHEMA IF EXISTS reconciler CASCADE' || true; fi
     systemctl stop exa-fetch-worker || true
     systemctl stop exa-crawler exa-observatory exa-reconciler || true
     for unit in "${units[@]}"; do
@@ -124,7 +124,7 @@ if not migrated:
         source.backup(target); target.close(); source.close()
 (release/'release.json').write_text(json.dumps({'branch':'master','commit':sha,'directory':str(release),'preparedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()},indent=2)+'\n')
 PY
-if [[ -e "$marker" ]]; then runuser -u postgres -- pg_dump -Fc -n crawl_budget crawler > before-crawl_budget.dump; fi
+if [[ -e "$marker" ]]; then runuser -u postgres -- pg_dump -Fc -n crawl_budget -n reconciler crawler > before-crawl_budget.dump; fi
 systemd-analyze verify deploy/rendered/*.service
 no_legacy_deploy
 [[ "$(resolve_master)" == "$commit" ]] || { echo 'Master advanced during preparation. No services changed; rerun for the new master.' >&2; exit 2; }
@@ -150,7 +150,7 @@ PY
   chmod 0444 "$sqlite_archive"/*.sqlite
   chown -R "$service_user:$service_user" "$archive_root"
   migrated=1
-  pg -d crawler -c 'DROP SCHEMA IF EXISTS crawl_budget CASCADE'
+  pg -d crawler -c 'DROP SCHEMA IF EXISTS crawl_budget CASCADE' -c 'DROP SCHEMA IF EXISTS reconciler CASCADE'
   as_service /usr/local/bin/node --import tsx tools/postgres/ensure-schema.ts
   as_service python3 deploy/migrate-sqlite-to-postgres.py "$sqlite_archive/crawler.sqlite" "$sqlite_archive/reconciler.sqlite"
   python3 - "$sqlite_archive/crawler.sqlite" > ledger-before.txt <<'PY'
@@ -163,6 +163,8 @@ else
   { pg -d crawler -At -c "SELECT count(*)||' '||coalesce(max(id),0) FROM crawl_budget.requests"
     pg -d crawler -At -c "SELECT domain||' '||started FROM crawl_budget.sites ORDER BY domain"; } > ledger-before.txt
 fi
+# Apply schema changes while nothing is connected, before any service starts.
+as_service /usr/local/bin/node --import tsx tools/postgres/ensure-schema.ts
 for unit in "${units[@]}"; do install -m 0644 "deploy/rendered/$unit.service" "/etc/systemd/system/$unit.service"; done
 systemctl daemon-reload
 systemctl start exa-crawler exa-observatory exa-reconciler
