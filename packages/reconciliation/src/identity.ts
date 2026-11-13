@@ -57,6 +57,9 @@ export type Sighting = {
   title_key: string;
   provider_published_at: number | null;
   provider_first_seen_at: number | null;
+  // Host the provider names as the row's source. For a Google wrapper link it
+  // is the only trace of the real URL; ./matching uses it to recognise page types.
+  source_host?: string | null;
 };
 export function sighting(
   site: string,
@@ -73,5 +76,6 @@ export function sighting(
     title_key: titleKey(title),
     provider_published_at: published,
     provider_first_seen_at: seen,
+    source_host: new URL(url).hostname.toLowerCase(),
   };
 }

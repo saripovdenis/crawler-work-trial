@@ -3,6 +3,7 @@ import { sites } from '../../../config/sites.js';
 import { pollInterval, pollLookback, providerIds, type ProviderId } from '../../../config/monitor.js';
 import { ARTICLE_SELECT, matchSightings, windows } from './view.js';
 import { fetchedArticles } from './timing.js';
+import { attachAlternateTitles } from './matching/index.js';
 import { date, matchingTitle, urlKey } from './identity.js';
 
 type Row = Record<string, any>;
@@ -111,6 +112,7 @@ export class CrawlerOnlyReader {
       crawler.exec('PRAGMA query_only=ON;PRAGMA busy_timeout=2000');
       monitor?.exec('PRAGMA query_only=ON;PRAGMA busy_timeout=2000');
       const articles = crawler.prepare(ARTICLE_SELECT).all(site,site) as Row[];
+      attachAlternateTitles(crawler,articles,site,start);
       const fetched = fetchedArticles(crawler,articles,site,now);
       const byFetchedKey = new Map<string,Row>();
       for (const row of fetched) for (const identity of fetchedKeys(row)) byFetchedKey.set(identity,row);

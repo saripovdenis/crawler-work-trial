@@ -119,6 +119,8 @@ CREATE INDEX IF NOT EXISTS sightings_time ON reconciler.external_sightings (obse
 --
 CREATE INDEX IF NOT EXISTS sightings_published ON reconciler.external_sightings (provider_published_at)
 --
+ALTER TABLE reconciler.external_sightings ADD COLUMN IF NOT EXISTS source_host text
+--
 CREATE TABLE IF NOT EXISTS reconciler.monitor_meta (key text PRIMARY KEY, value text)
 --
 CREATE TABLE IF NOT EXISTS reconciler.audit_candidates (

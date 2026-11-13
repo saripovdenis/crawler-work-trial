@@ -45,6 +45,31 @@ match. Google wrapper URLs are never followed: Google is matched by title/date.
 This heuristic can miss changed headlines and confuse repeated headlines; URL
 and probable-title counts are shown separately.
 
+When the exact title finds nothing, the relaxed title rules below are tried in
+order. None scores similarity: each names one exact difference between the two
+titles. All require the same domain, publication times within three hours and a
+single story.
+
+| `match_rule` | The provider title and the article title differ only by |
+| --- | --- |
+| `same_story` | nothing, but the crawler holds several copies published within 10 minutes (for example `www` and `biz` hosts); the earliest fetch is used |
+| `short_title` | nothing, but a Chinese, Japanese or Korean title is shorter than the 12-character minimum (6 applies to those scripts) |
+| `normalized` | spacing, punctuation or HTML entities |
+| `alternate_title` | the page having two titles: the provider shows `og:title`, the parser stored the headline |
+| `section_trail` | a trail after the headline, as in `Headline \| Section \| Site`; the headline must be at least half of the title |
+| `cut_short` | one side being cut at a length limit: it is at least 60 characters (20 for those scripts) and the other starts with all of it |
+
+Copies published further apart stay ambiguous and unmatched. `summary` reports
+`exactTitleMatched` and `relaxedTitleMatched` inside `titleMatched`, and every
+group carries its `match_rule`. Matching runs when a page is read, so earlier
+hours are scored by the current rules.
+
+All of this lives in `packages/reconciliation/src/matching/`: `rules.ts` holds
+every threshold and an on/off switch per rule, `titles.ts` the compared title
+forms, `title-index.ts` the rules in order, `content-kind.ts` the non-article
+page shapes. The readers call only `matchSightings`, `attachAlternateTitles`
+and `groupContentKind`.
+
 The default window is the last **publication hour**. The 10m/1h/24h/7d selector uses
 `external_sightings.provider_published_at`, not first observation. Old stories
 newly indexed today no longer enter the last-hour sample. Unknown publication
@@ -193,9 +218,17 @@ cooldowns and the six-second spacing between calls.
 ## Result types and archived date repairs
 
 The API exposes `excludedNonArticles`, `excludedGroups` (URL and reason), and
-`unfilteredSummary`. Only known El Mundo topic/byline routes and Mediapart
-profile/listing routes are excluded. Unknown URLs and Google wrappers stay in
+`unfilteredSummary`. Only known El Mundo topic/byline routes, Mediapart
+profile/listing routes and Sina comment pages are excluded. Unknown URLs stay in
 the sample. The dashboard's expandable exclusions list makes this reviewable.
+
+A Google wrapper link hides the page URL, but Google's feed names each row's
+source host. The monitor stores it in `external_sightings.source_host`, and a
+row whose source is `comment5.news.sina.com.cn` is a comment thread, not an
+article. A group is excluded only when every row in it is such a page, whether
+or not it matched. Rows collected before the column existed have no host and
+stay in the sample; a row seen again by a later poll gets its host filled in.
+The host list is `nonArticleHosts` in `matching/rules.ts`.
 UDN referral parameters are removed only for recognized `udn-`/`udn_` values.
 
 Missing CE/Eastmoney publication dates can be repaired without HTTP:

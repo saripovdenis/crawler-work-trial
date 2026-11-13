@@ -2,172 +2,14 @@ import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { LruCache } from "../../core/src/lru.js";
 import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
-import { urlKey, matchingTitle, date } from "./identity.js";
+import { urlKey } from "./identity.js";
 import { fetchedArticles } from "./timing.js";
 import { dispatchSummary } from "./dispatch.js";
-import { externalContentKind } from "./content-kind.js";
+import { attachAlternateTitles, groupContentKind, isRelaxedMatch, matchSightings, type Group } from "./matching/index.js";
 import { publicationTiming, summarizeFreshness } from "./freshness.js";
+// The matcher lives in ./matching; these names stay importable from here.
+export { matchSightings, type Group, type ProviderTiming } from "./matching/index.js";
 type Row = Record<string, any>;
-export type ProviderTiming = {
-  sighting_id: number;
-  provider: string;
-  url: string;
-  published_at: number | null;
-  provider_first_seen_at: number | null;
-  observed_at: number;
-  last_observed_at: number;
-  first_run_id: number;
-  first_poll_started_at: number | null;
-  first_poll_finished_at: number | null;
-  fetch_minus_observed_ms: number | null;
-  fetch_minus_published_ms: number | null;
-};
-export type Group = {
-  key: string;
-  site: string;
-  title: string;
-  url: string;
-  url_key: string | null;
-  observed_at: number;
-  published_at: number | null;
-  providers: string[];
-  match: "url" | "title" | null;
-  article_url: string | null;
-  incomplete: boolean;
-  unparsed: boolean;
-  ambiguous: boolean;
-  provider_timings: ProviderTiming[];
-  crawler_source_url: string | null;
-  crawler_published_at: number | null;
-  crawler_discovered_at: number | null;
-  crawler_parsed_at: number | null;
-  crawler_reprocessed_at: number | null;
-  crawler_fetch_finished_at: number | null;
-  crawler_fetch_time_source:
-    | "worker_receipt"
-    | "legacy_request_finished"
-    | null;
-  crawler_request_id: number | null;
-  audit?: { state: string; status: number | null; error: string | null };
-};
-export function matchSightings(rows: Row[], articles: Row[]): Group[] {
-  const urls = new Map<string, Row>();
-  const titles = new Map<string, Row[]>();
-  for (const a of articles) {
-    for (const raw of [a.canonical_url, a.source_url, ...(a.match_urls || [])]) {
-      const k = raw && urlKey(raw);
-      if (k) urls.set(k, a);
-    }
-    const k = a.domain + "|" + matchingTitle(a.title || "", a.domain);
-    const list = titles.get(k) || [];
-    list.push(a);
-    titles.set(k, list);
-  }
-  const groups = new Map<string, Group>();
-  const groupTitles = new Map<string, Group[]>();
-  for (const original of [...rows].sort(
-    (a, b) => Number(!!b.url_key) - Number(!!a.url_key),
-  )) {
-    const row: Row = { ...original, url_key: urlKey(original.url_raw), title_key: matchingTitle(original.title || "", original.site) };
-    let article = row.url_key ? urls.get(row.url_key) : undefined;
-    let kind: Group["match"] = article ? "url" : null;
-    let ambiguous = false;
-    if (
-      !article &&
-      row.title_key.length >= 12 &&
-      row.provider_published_at !== null
-    ) {
-      const candidates = (
-        titles.get(row.site + "|" + row.title_key) || []
-      ).filter(
-        (a) =>
-          a.published &&
-          Math.abs(Date.parse(a.published) - row.provider_published_at) <=
-            6 * 3600000,
-      );
-      if (candidates.length === 1) {
-        article = candidates[0];
-        kind = "title";
-      } else ambiguous = candidates.length > 1;
-    }
-    let key = article
-      ? "article:" + article.canonical_url
-      : row.url_key
-        ? "url:" + row.url_key
-        : `title:${row.site}:${row.title_key}:${row.provider_published_at ?? row.url_raw}`;
-    if (!article && !row.url_key && row.provider_published_at !== null) {
-      const same = (
-        groupTitles.get(row.site + "|" + row.title_key) || []
-      ).filter(
-        (g) =>
-          g.published_at !== null &&
-          Math.abs(g.published_at - row.provider_published_at) <= 6 * 3600000,
-      );
-      if (same.length === 1) key = same[0].key;
-    }
-    const current = groups.get(key);
-    const timing: ProviderTiming = {
-      sighting_id: row.id,
-      provider: row.provider,
-      url: row.url_raw,
-      published_at: row.provider_published_at ?? null,
-      provider_first_seen_at: row.provider_first_seen_at ?? null,
-      observed_at: row.observed_at,
-      last_observed_at: row.last_observed_at ?? row.observed_at,
-      first_run_id: row.run_id,
-      first_poll_started_at: row.first_poll_started_at ?? null,
-      first_poll_finished_at: row.first_poll_finished_at ?? null,
-      fetch_minus_observed_ms: null,
-      fetch_minus_published_ms: null,
-    };
-    if (current) {
-      current.provider_timings.push(timing);
-      if (!current.providers.includes(row.provider))
-        current.providers.push(row.provider);
-      current.observed_at = Math.min(current.observed_at, row.observed_at);
-      if (kind === "url") current.match = "url";
-      continue;
-    }
-    const group: Group = {
-      key,
-      site: row.site,
-      title: row.title,
-      url: row.url_raw,
-      url_key: row.url_key,
-      observed_at: row.observed_at,
-      published_at: row.provider_published_at,
-      providers: [row.provider],
-      match: kind,
-      article_url: article?.canonical_url || null,
-      incomplete: article?.classification === "incomplete",
-      unparsed: !!article && article.fetched == null,
-      ambiguous,
-      provider_timings: [timing],
-      crawler_source_url: article?.source_url || null,
-      crawler_published_at: date(article?.published),
-      crawler_discovered_at: article?.discovered ?? null,
-      crawler_parsed_at: article?.fetched ?? null,
-      crawler_reprocessed_at: date(article?.reprocessed_at),
-      crawler_fetch_finished_at: article?.fetch_finished_at ?? null,
-      crawler_fetch_time_source: article?.fetch_time_source ?? null,
-      crawler_request_id: article?.request_id ?? null,
-    };
-    groups.set(key, group);
-    const titleGroupKey = row.site + "|" + row.title_key;
-    const titleGroups = groupTitles.get(titleGroupKey) || [];
-    titleGroups.push(group);
-    groupTitles.set(titleGroupKey, titleGroups);
-  }
-  for (const group of groups.values()) {
-    const finished = group.crawler_fetch_finished_at;
-    if (finished === null) continue;
-    for (const timing of group.provider_timings) {
-      timing.fetch_minus_observed_ms = finished - timing.observed_at;
-      timing.fetch_minus_published_ms = timing.published_at === null ? null : finished - timing.published_at;
-    }
-  }
-  return [...groups.values()];
-}
 export const windows = { "10m": 600000, "1h": 3600000, "24h": 86400000, "7d": 604800000 };
 export const ARTICLE_SELECT = `SELECT canonical_url,domain,published,classification,discovered,fetched,json_extract(payload,'$.title') title,json_extract(payload,'$.sourceUrl') source_url,json_extract(payload,'$.reprocessedAt') reprocessed_at FROM articles WHERE (?='' OR domain=?)`;
 export function coverageQuery(params: URLSearchParams) {
@@ -259,16 +101,17 @@ export class CoverageReader {
           ARTICLE_SELECT,
         )
         .all(site, site) as Row[];
+      attachAlternateTitles(crawler, articles, site, start);
       const allGroups = matchSightings(rows.slice(0, 50000), fetchedArticles(crawler,articles,site,now)).filter(group => {
         if (!includeFreshness) return true;
         const published = publicationTiming(group, provider || undefined).publishedAt;
         return published !== null && published >= start && published < now;
       });
       const excludedGroups = allGroups.flatMap(g => {
-        const kind = externalContentKind(g.url, g.site);
+        const kind = groupContentKind(g);
         return kind.kind === 'non_article' ? [{site:g.site,title:g.title,url:g.url,reason:kind.reason}] : [];
       });
-      const groups = allGroups.filter(g => externalContentKind(g.url, g.site).kind !== 'non_article');
+      const groups = allGroups.filter(g => groupContentKind(g).kind !== 'non_article');
       if (
         crawler
           .prepare(
@@ -313,6 +156,9 @@ export class CoverageReader {
           completePercentage: list.length ? (completeMatched / list.length) * 100 : null,
           urlMatched: list.filter((g) => g.match === "url").length,
           titleMatched: list.filter((g) => g.match === "title").length,
+          // Title matches split by the original exact rule and the relaxed ones.
+          exactTitleMatched: list.filter((g) => g.match_rule === "exact").length,
+          relaxedTitleMatched: list.filter(isRelaxedMatch).length,
           unmatched: list.filter(
             (g) => !g.match && g.observed_at <= now - 1800000,
           ).length,

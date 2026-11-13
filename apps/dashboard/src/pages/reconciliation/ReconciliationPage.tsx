@@ -181,7 +181,7 @@ export default function ReconciliationPage() {
           {data && (data.unknownPublication > 0 || data.excludedNonArticles > 0 || data.truncated) && (
             <p className="reconcile-definition">
               {data.unknownPublication > 0 && `Excluded: ${number(data.unknownPublication)} with unknown publication date. `}
-              {data.excludedNonArticles > 0 && `Excluded: ${number(data.excludedNonArticles)} verified topic/profile pages. `}
+              {data.excludedNonArticles > 0 && `Excluded: ${number(data.excludedNonArticles)} verified non-article pages. `}
               {data.truncated && (
                 <b>
                   One or more result sets reached a provider limit: this is a

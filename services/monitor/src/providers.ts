@@ -36,6 +36,8 @@ export function parseResults(
     for (const row of records) {
       const source = row.source?.["@_url"];
       if (typeof source !== "string" || domainFor(source) !== site) continue;
+      let sourceHost: string | null = null;
+      try { sourceHost = new URL(source).hostname.toLowerCase(); } catch { /* keep the row without a host */ }
       const label = String(row.source?.["#text"] || "");
       let title = String(row.title || "");
       if (label && title.endsWith(" - " + label))
@@ -55,6 +57,7 @@ export function parseResults(
         title_key: titleKey(title),
         provider_published_at: date(row.pubDate),
         provider_first_seen_at: null,
+        source_host: sourceHost,
       });
     }
   } else {

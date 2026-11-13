@@ -146,7 +146,7 @@ export class MonitorStore {
         const key = createHash("sha256").update(identity).digest("hex");
         this.db
           .prepare(
-            `INSERT INTO external_sightings(provider,site,item_key,url_raw,url_key,title,title_key,provider_published_at,provider_first_seen_at,observed_at,last_observed_at,run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider,site,item_key) DO UPDATE SET last_observed_at=excluded.last_observed_at`,
+            `INSERT INTO external_sightings(provider,site,item_key,url_raw,url_key,title,title_key,provider_published_at,provider_first_seen_at,observed_at,last_observed_at,run_id,source_host) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider,site,item_key) DO UPDATE SET last_observed_at=excluded.last_observed_at,source_host=coalesce(external_sightings.source_host,excluded.source_host)`,
           )
           .run(
             job.provider,
@@ -161,6 +161,7 @@ export class MonitorStore {
             now,
             now,
             job.id,
+            item.source_host ?? null,
           );
       }
       this.db
