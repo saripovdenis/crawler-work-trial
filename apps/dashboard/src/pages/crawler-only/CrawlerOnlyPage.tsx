@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import { comparisonProviders, selectedComparisonProvider } from "../../../../../config/comparison";
-import { Sidebar } from "@/components/Sidebar";
-import "../App.css";
-import "./crawler-only.css";
+import { PageHead, Shell } from "@/components/Shell";
 
 type StatusCounts = { total: number; compared: number; crawlerOnly: number; percentage: number | null };
 type CrawlerOnlySnapshot = {
@@ -72,43 +70,39 @@ export default function CrawlerOnlyPage() {
   const domains = [...(current?.domains || [])].sort((a, b) =>
     (b.percentage ?? -1) - (a.percentage ?? -1) || a.site.localeCompare(b.site));
 
-  return <div className="app-shell crawler-only-page">
-    <Sidebar active="crawler-only" />
-    <main><div className="crawler-content">
-      <header className="crawler-heading">
-        <div><h1>Crawler-only</h1><p>Our articles absent from {comparisonProviders[provider]} samples.</p></div>
-        <div className="crawler-filters">
-        <ProviderSelect value={provider} onChange={setProvider} />
-        <label>Published within
-        <select aria-label="Publication window" value={window} onChange={event => setWindow(event.target.value)}>
-          <option value="1h">Last hour · provisional</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option>
-        </select></label>
-        </div>
-      </header>
-      <section className="crawler-total" aria-label="Overall crawler-only percentage" aria-busy={loading}>
+  return <Shell active="crawler-only">
+    <PageHead title="Crawler-only">
+      <ProviderSelect value={provider} onChange={setProvider} />
+      <select aria-label="Publication window" value={window} onChange={event => setWindow(event.target.value)}>
+        <option value="1h">Last hour · provisional</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option>
+      </select>
+    </PageHead>
+    {(error || expired) && <div className="alerts" role="alert"><p>
+      {error || "Comparison is out of date."} <button className="link" disabled={loading} onClick={() => setRefresh(value => value + 1)}>Retry</button>
+    </p></div>}
+    <section className="stats stats-1" aria-label="Overall crawler-only percentage" aria-busy={loading}>
+      <div className="stat">
+        <span className="label">Not in the {comparisonProviders[provider]} sample</span>
         <strong>{percent(current?.summary.percentage)}</strong>
-        <span>{current ? `${ratio(current.summary)} compared articles` : loading ? "Loading comparison…" : "No comparison available"}</span>
-      </section>
-      {(error || expired) && <p className="crawler-error" role="alert">
-        {error || "Comparison is out of date."} <button disabled={loading} onClick={() => setRefresh(value => value + 1)}>Retry</button>
-      </p>}
-      {current && <>
-        <table className="crawler-domains">
-          <caption className="sr-only">Crawler-only percentage by domain</caption>
-          <thead><tr><th>Domain</th><th>Crawler-only</th><th>Articles</th></tr></thead>
-          <tbody>{domains.map(domain => <tr key={domain.site}>
-            <th scope="row">{domain.site}</th>
-            <td>{percent(domain.percentage)}</td>
-            <td title={`${number(domain.total - domain.compared)} excluded: recent, uncertain, or without comparison evidence.`}>
-              {domain.compared ? ratio(domain) : domain.total ? "No comparison" : "No posts"}
-            </td>
-          </tr>)}</tbody>
-        </table>
-        <footer className="crawler-footnote">
-          <p>{current.provisional ? "Live comparison: Google may list these articles later." : `Articles ≥${current.gracePeriodMinutes} min old.`} Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from Google.</p>
-          <p>Updated {new Date(current.generatedAt).toISOString().slice(11, 19)} UTC{loading ? " · refreshing" : ""}</p>
-        </footer>
-      </>}
-    </div></main>
-  </div>;
+        <small>{current ? `${ratio(current.summary)} compared articles` : loading ? "Loading…" : "No comparison available"}</small>
+      </div>
+    </section>
+    {current && <>
+      <table className="tbl">
+        <caption className="sr-only">Crawler-only percentage by domain</caption>
+        <thead><tr><th>Domain</th><th className="num">Crawler-only</th><th className="num">Articles</th></tr></thead>
+        <tbody>{domains.map(domain => <tr key={domain.site}>
+          <td>{domain.site}</td>
+          <td className="num">{percent(domain.percentage)}</td>
+          <td className="num faint" title={`${number(domain.total - domain.compared)} excluded: recent, uncertain, or without comparison evidence.`}>
+            {domain.compared ? ratio(domain) : domain.total ? "No comparison" : "No posts"}
+          </td>
+        </tr>)}</tbody>
+      </table>
+      <p className="footnote">
+        {current.provisional ? "Live comparison: Google may list these articles later." : `Articles ≥${current.gracePeriodMinutes} min old.`} Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from Google.
+        {" "}Updated {new Date(current.generatedAt).toISOString().slice(11, 19)} UTC{loading ? " · refreshing" : ""}.
+      </p>
+    </>}
+  </Shell>;
 }

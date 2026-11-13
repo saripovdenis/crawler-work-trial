@@ -70,7 +70,8 @@ The mapper commits parsed results in the scheduler, while the fetch worker remai
 ## External coverage
 
 `npm run monitor` polls external news indexes every 10 minutes. Open `/reconciliation`
-for provider-sample coverage, unmatched stories, quotas and recent calls. Credentials
+for provider-sample coverage over 10 minutes, 1 hour and 24 hours, overall and by domain;
+`/api/reconciliation` keeps the per-article evidence, quotas and recent calls. Credentials
 belong in private `.env.monitor`. See [matching, limits and deployment](docs/RECONCILIATION.md).
 
 ## Run in Cursor's terminal
@@ -205,15 +206,18 @@ The existing `exa-crawler` service and its database are unchanged. Caddy serves 
 and proxies to the API on loopback port 4318. Google Cloud ingress exposes only
 80/443 for this dashboard; SSH remains restricted to IAP.
 
-- Overview: heartbeat, fresh articles, publisher-derived delay, request volume, site health.
-- Request log: cursor pagination, site/error filters, HTTP outcomes and duration.
-- Inspector: candidate links reconstructed from compressed discovery responses.
+- Overview: fresh articles, responding sites, publisher-derived delay, request volume, per-site budget.
+- Coverage and Freshness: one figure each for 10 minutes, 1 hour and 24 hours, plus the per-domain split.
+- Crawler-only: crawler articles absent from the provider sample.
+- Requests: cursor pagination, site/error filters, HTTP outcomes and duration; a row opens
+  the candidate links reconstructed from compressed discovery responses.
 - Articles: title search, site/fresh filters, publication evidence and source links.
-- Schedule: earliest source eligibility, successful polls, errors, URL discovery counts.
 
-UI updates every 10 seconds; overview queries are cached for 10 seconds. All times
-render in UTC. Overview always covers all sites; the website selector filters the
-request log, articles and schedule. Site health reflects the
+Overview, Requests and Articles refresh every 10 seconds; Coverage, Freshness and Crawler-only
+every 30 seconds. Alerts appear only when something is wrong (stale heartbeat, provider
+error or quota, truncated sample, dispatch deadline failures, expired snapshot). All times
+render in UTC. Overview always covers all sites; the website selector filters
+requests and articles. Site health reflects the
 last result for each discovery source, not a guarantee of complete article coverage.
 The request inspector uses the current parser, shows at most 200 candidate links,
 and does not claim they were all newly discovered in that poll. API responses omit
@@ -222,7 +226,7 @@ raw headers and full article bodies. Filters never make upstream requests.
 `deploy/` contains the unchanged HTTPS proxy configuration and updated systemd entry paths.
 Rows live in the PostgreSQL `crawl_budget` schema (see `docs/POSTGRES.md`); the public URL and port stay unchanged.
 
-Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
+Useful API endpoints: `/api/overview`, `/api/summary`, `/api/requests?domain=bbc.com`,
 `/api/requests/123`, `/api/articles?fresh=true&q=news`, `/api/sources`.
 There are no write endpoints. API traffic is capped globally at 300 requests/10s,
 with at most two simultaneous saved-response inspections.
@@ -232,8 +236,9 @@ and manual inspection. Deployments retain database backups and service health ch
 
 ### Freshness dashboard
 
-Open `/freshness` for P50/P75/P90 of fetch finish minus the earliest Google/Exa
-publication date, followed by a paginated URL table. See
+Open `/freshness` for the median (P50, with P90 below it) of fetch finish minus the earliest
+provider publication date over 10 minutes, 1 hour and 24 hours, overall and by domain.
+`/api/freshness` keeps P75 and the per-URL table. See
 [freshness definitions](docs/METRICS.md#publication-to-fetch-delay).
 Use `npm run dashboard:build` and `npm run dashboard:api`.
 For local inspection, point `CRAWLER_DATA_DIR` and `RECONCILER_DB` at database copies.

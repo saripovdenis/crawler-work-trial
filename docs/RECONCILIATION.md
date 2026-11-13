@@ -34,7 +34,7 @@ unfinished downloads, discovery requests and external audit requests do not coun
 Parsed `articles` rows enrich these downloads with canonical URLs, titles and
 quality; they are not required for a URL match. `summary.unparsed` counts matched
 downloads without a parsed record; `summary.incomplete` counts incomplete parsed
-records. Neither counts toward “matched & complete.” Parsing quality remains on Charts.
+records. Neither counts toward “matched & complete.”
 Google wrapper URLs still need a probable title/date match (or grouping with an
 identified provider URL), so a Google-only item can remain unmatched until parsing.
 
@@ -165,7 +165,11 @@ RECONCILER_DB=data/reconciler.sqlite npm run scheduler
 ```
 
 `GET /api/reconciliation?window=24h&site=bbc.com&provider=exa` is read-only.
-Unknown filters return 400. `/reconciliation` is the public dashboard page.
+Unknown filters return 400. `/reconciliation` is the public dashboard page; it reads
+`GET /api/summary`, which derives the 10m, 1h and 24h figures (fetched coverage and
+publication-to-fetch P50/P90, overall and per domain) from one cached 24-hour dataset.
+A group falls in a window by its earliest provider publication, so the 24-hour figures
+equal `/api/reconciliation?window=24h`.
 
 Production: credentials live in `/etc/exa-reconciler.env` (root-owned 0600); deploy with the master
 command in [deploy/README.md](../deploy/README.md). The existing worker, Caddy, ports and URLs remain unchanged.
@@ -253,9 +257,9 @@ concurrent changes. Its before/after audit allows conditional rollback.
 
 ## Complete coverage and dispatch health
 
-The page shows fetched matches and **matched & complete** separately, both overall
-and by domain. `completeMatched` / `completePercentage` exclude the same
-`classification='incomplete'` rows as Charts. URL and probable title matches remain
+`/api/reconciliation` reports fetched matches and **matched & complete** separately, both overall
+and by domain. `completeMatched` / `completePercentage` exclude
+`classification='incomplete'` rows. URL and probable title matches remain
 separate. Historical UDN referral keys are normalized when read as well as on
 new sightings.
 

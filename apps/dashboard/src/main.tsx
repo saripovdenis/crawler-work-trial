@@ -1,14 +1,15 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import "./dashboard.css";
 import App from "./pages/App.tsx";
-import ReconciliationPage from './pages/reconciliation/ReconciliationPage.tsx';
-import FreshnessPage from "./pages/freshness/FreshnessPage.tsx";
-import ChartsPage from "./pages/charts/ChartsPage.tsx";
+import SummaryPage from "./pages/summary/SummaryPage.tsx";
 import CrawlerOnlyPage from "./pages/crawler-only/CrawlerOnlyPage.tsx";
 
+const path = location.pathname.replace(/\/+$/, "");
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {location.pathname === '/crawler-only' || location.pathname === '/crawler-only/' ? <CrawlerOnlyPage /> : location.pathname === '/freshness' || location.pathname === '/freshness/' ? <FreshnessPage /> : location.pathname.startsWith('/reconciliation') ? <ReconciliationPage /> : location.pathname === '/charts' || location.pathname === '/charts/' ? <ChartsPage /> : <App />}
+    {path === "/crawler-only" ? <CrawlerOnlyPage /> : path === "/freshness" ? <SummaryPage key="freshness" kind="freshness" />
+      : path.startsWith("/reconciliation") ? <SummaryPage key="coverage" kind="coverage" /> : <App />}
   </StrictMode>,
 );

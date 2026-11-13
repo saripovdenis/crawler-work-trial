@@ -45,7 +45,7 @@ const server = createServer(async (req, res) => {
       else if (url.pathname === "/api/reconciliation") result = await cache.coverage(url.searchParams);
       else if (url.pathname === "/api/freshness") result = await cache.coverage(url.searchParams,true);
       else if (url.pathname === "/api/crawler-only") result = await cache.crawlerOnly(url.searchParams);
-      else if (url.pathname === "/api/charts/parsing-quality") result = await cache.get('charts',url.searchParams);
+      else if (url.pathname === "/api/summary") result = await cache.summary(url.searchParams);
       else if (url.pathname === "/api/overview") result = await cache.get('overview');
       else if (url.pathname === "/api/requests")
         result = await cache.get('requests',url.searchParams);

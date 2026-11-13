@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { LruCache } from '../../../../packages/core/src/lru.js';
 import { coverageQuery, pageCoverage } from '../../../../packages/reconciliation/src/view.js';
 import { crawlerOnlyQuery, pageCrawlerOnly } from '../../../../packages/reconciliation/src/crawler-only.js';
+import { selectedComparisonProvider } from '../../../../config/comparison.js';
 
 type Job={id:number;method:string;args:any;resolve(value:any):void;reject(error:Error):void;timer?:ReturnType<typeof setTimeout>};
 type Snapshot={value:any;finishedAt:number;startedAt:number};
@@ -89,6 +90,11 @@ export class DashboardCache {
     const snapshot=await this.cached('coverage:'+JSON.stringify(args),'coverage',args,60_000,300_000);
     return pageCoverage(snapshot,q.matches,q.page);
   }
+  // One 24-hour dataset feeds the 10m, 1h and 24h columns of Coverage and Freshness.
+  async summary(params:URLSearchParams) {
+    const provider=selectedComparisonProvider(params.get('provider'));
+    return this.cached('summary:'+provider,'summary',{provider},60_000,300_000);
+  }
   async crawlerOnly(params:URLSearchParams) {
     const q=crawlerOnlyQuery(params),args={window:q.window,site:q.site,provider:q.provider};
     const snapshot=await this.cached('crawler-only:'+JSON.stringify(args),'crawlerOnly',args,60_000,300_000);
@@ -97,7 +103,7 @@ export class DashboardCache {
   async get(method:string,params=new URLSearchParams(),id?:number) {
     const query=new URLSearchParams(params);query.sort();
     const args=method==='detail'?{id}:{query:query.toString()};
-    const slow=method==='overview'||method==='charts';
+    const slow=method==='overview';
     return this.cached(method+':'+JSON.stringify(args),method,args,slow?30_000:10_000,slow?120_000:60_000);
   }
   async metrics() {

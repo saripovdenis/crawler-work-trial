@@ -23,11 +23,13 @@ publication date reported by Google News or Exa**. One provider is enough; an
 article does not have to appear in both. Provider observation times are not part
 of this metric. It measures download completion, not parse completion.
 
-The page has one row of three percentiles and a paginated URL table. Every row exposes its earliest
-publication, the provider(s) reporting that date, linked fetch finish, delay and
-status. Percentiles use the full timed sample, independent of pagination or the table's
-fetched/not-fetched filter. Missing downloads or timestamps never become zero.
-Incomplete parses and probable title matches remain included and visibly labeled.
+The page shows the P50 (with P90 and the sample size) for 10 minutes, 1 hour and
+24 hours, overall and per domain, from `/api/summary`. That endpoint derives all three
+windows from the 24-hour coverage dataset, so it does not reach provider records older
+than 24 hours the way `/api/freshness` does. `/api/freshness` keeps the per-URL table:
+every row exposes its earliest publication, the provider(s) reporting that date, linked
+fetch finish, delay and status. Missing downloads or timestamps never become zero.
+Incomplete parses and probable title matches remain included.
 
 The read-only `/api/freshness` retains its existing fields and adds
 `groups[].publication_timing` with `publishedAt`, `providers`, `fetchFinishedAt`
@@ -44,4 +46,4 @@ This is a sample of provider-reported articles, not all crawler downloads or a
 complete census. Negative delays remain visible as timestamp anomalies. All times
 are UTC; polling, quotas, database schemas and crawler behavior are unchanged.
 The prior comparison fields remain in the API for compatibility but are not shown
-on the simplified page.
+on the page.
