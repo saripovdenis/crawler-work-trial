@@ -1,10 +1,14 @@
 [Unit]
+After=postgresql.service
+Wants=postgresql.service
 Description=External news coverage reconciler
 After=network-online.target
 Wants=network-online.target
 RequiresMountsFor=/var/lib/exa-crawler
 
 [Service]
+Environment=PGHOST=/var/run/postgresql
+Environment=PGDATABASE=crawler
 Type=simple
 User=exa-crawler
 Group=exa-crawler
@@ -16,7 +20,7 @@ ExecStart=/usr/local/bin/node --import tsx services/monitor/src/index.ts
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=35
-MemoryMax=192M
+MemoryMax=512M
 CPUQuota=40%
 NoNewPrivileges=true
 PrivateTmp=true

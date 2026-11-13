@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "../../../../packages/pg/src/sync.js";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import { resolve } from "node:path";
@@ -97,7 +97,7 @@ export class Observatory {
       };
     });
     const delays = this.all(
-      "SELECT (discovered - julianday(published)*86400000 + 210866760000000)/1000 AS delay FROM articles WHERE classification='new' AND published IS NOT NULL ORDER BY delay",
+      "SELECT (discovered - extract(epoch FROM published::timestamptz)*1000)/1000 AS delay FROM articles WHERE classification='new' AND published IS NOT NULL ORDER BY delay",
     )
       .map((r) => r.delay)
       .filter((n) => n >= 0);
@@ -197,7 +197,7 @@ export class Observatory {
     if (params.get("fresh") === "true") conditions.push("classification='new'");
     const search = (params.get("q") || "").slice(0, 100);
     if (search) {
-      conditions.push("json_extract(payload,'$.title') LIKE ?");
+      conditions.push("json_extract(payload,'$.title') ILIKE ?");
       values.push("%" + search + "%");
     }
     const rows = this.all(
@@ -216,7 +216,7 @@ export class Observatory {
     const { domain } = this.filter(params);
     return {
       items: this.all(
-        `SELECT url,domain,kind,next_poll AS nextEligible,polls,errors,discovered,last_error AS lastError FROM sources ${domain ? "WHERE domain=?" : ""} ORDER BY next_poll ASC LIMIT 500`,
+        `SELECT url,domain,kind,next_poll AS nextEligible,polls,errors,discovered,last_error AS lastError FROM sources ${domain ? "WHERE domain=?" : ""} ORDER BY next_poll ASC,url LIMIT 500`,
         ...(domain ? [domain] : []),
       ),
     };

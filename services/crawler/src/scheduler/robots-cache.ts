@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 
 const parseRobots: typeof import('robots-parser').default = createRequire(import.meta.url)('robots-parser');
 export const ROBOTS_TTL_MS = 6 * 3600_000;

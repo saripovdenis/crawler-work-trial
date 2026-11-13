@@ -1,4 +1,5 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "../../pg/src/sync.js";
+import { ensureSchema } from "../../pg/src/schema.js";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -14,18 +15,10 @@ type Config = ReturnType<typeof providerConfig>[number];
 export class MonitorStore {
   readonly db: DatabaseSync;
   constructor(path: string) {
+    // The path now only names this service's lock file; rows live in PostgreSQL.
     mkdirSync(dirname(path), { recursive: true });
-    this.db = new DatabaseSync(path);
-    this.db.exec(`PRAGMA journal_mode=WAL;PRAGMA busy_timeout=5000;
-    CREATE TABLE IF NOT EXISTS provider_state(provider TEXT PRIMARY KEY,enabled INTEGER,daily_limit INTEGER,total_limit INTEGER,next_call INTEGER DEFAULT 0,note TEXT);
-    CREATE TABLE IF NOT EXISTS provider_schedule(provider TEXT,site TEXT,next_poll INTEGER,last_success INTEGER,PRIMARY KEY(provider,site));
-    CREATE TABLE IF NOT EXISTS provider_runs(id INTEGER PRIMARY KEY,provider TEXT,site TEXT,started_at INTEGER,finished_at INTEGER,status TEXT,result_count INTEGER DEFAULT 0,accepted_count INTEGER DEFAULT 0,truncated INTEGER DEFAULT 0,quota_used INTEGER DEFAULT 1,cost_usd REAL,window_start INTEGER,window_end INTEGER,error TEXT);
-    CREATE INDEX IF NOT EXISTS provider_runs_quota ON provider_runs(provider,started_at);
-    CREATE TABLE IF NOT EXISTS external_sightings(id INTEGER PRIMARY KEY,provider TEXT,site TEXT,item_key TEXT,url_raw TEXT,url_key TEXT,title TEXT,title_key TEXT,provider_published_at INTEGER,provider_first_seen_at INTEGER,observed_at INTEGER,last_observed_at INTEGER,run_id INTEGER,UNIQUE(provider,site,item_key));
-    CREATE INDEX IF NOT EXISTS sightings_time ON external_sightings(observed_at,site,provider);
-    CREATE TABLE IF NOT EXISTS monitor_meta(key TEXT PRIMARY KEY,value TEXT);
-    CREATE TABLE IF NOT EXISTS audit_candidates(url_key TEXT PRIMARY KEY,url TEXT,domain TEXT,created_at INTEGER,state TEXT DEFAULT 'pending');
-  `);
+    this.db = new DatabaseSync();
+    ensureSchema(this.db);
   }
   configure(configs: Config[], now = Date.now()) {
     // Keep removed providers' history and quota ledger, but never schedule them.
@@ -57,7 +50,7 @@ export class MonitorStore {
       // Keep provider cooldowns and all quota reservations intact.
       this.db
         .prepare(
-          `UPDATE provider_schedule SET next_poll=min(next_poll,
+          `UPDATE provider_schedule SET next_poll=least(next_poll,
         coalesce((SELECT max(started_at) FROM provider_runs r
           WHERE r.provider=provider_schedule.provider AND r.site=provider_schedule.site)+?,next_poll))
         WHERE provider=?`,
@@ -200,7 +193,7 @@ export class MonitorStore {
     if (retryAt)
       this.db
         .prepare(
-          "UPDATE provider_state SET next_call=max(next_call,?) WHERE provider=?",
+          "UPDATE provider_state SET next_call=greatest(next_call,?) WHERE provider=?",
         )
         .run(retryAt, job.provider);
   }

@@ -1,5 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
-import { existsSync } from 'node:fs';
+import { DatabaseSync, hasTable } from '../../pg/src/sync.js';
 import { sites } from '../../../config/sites.js';
 import { pollInterval, pollLookback, providerIds, type ProviderId } from '../../../config/monitor.js';
 import { ARTICLE_SELECT, matchSightings, windows } from './view.js';
@@ -100,7 +99,7 @@ export class CrawlerOnlyReader {
   dataset(window: CrawlerOnlyWindow, site: string, provider: CrawlerOnlyProvider, now: number): CrawlerOnlySnapshot {
     const start = now - windows[window], selected: readonly ProviderId[] = provider === 'both' ? providerIds : [provider];
     const crawler = new DatabaseSync(this.crawlerPath,{readOnly:true});
-    const monitor = existsSync(this.monitorPath) ? new DatabaseSync(this.monitorPath,{readOnly:true}) : undefined;
+    const monitor = hasTable('external_sightings') ? new DatabaseSync(this.monitorPath,{readOnly:true}) : undefined;
     try {
       crawler.exec('PRAGMA query_only=ON;PRAGMA busy_timeout=2000');
       monitor?.exec('PRAGMA query_only=ON;PRAGMA busy_timeout=2000');
@@ -112,7 +111,7 @@ export class CrawlerOnlyReader {
       // population would remove ambiguous title candidates and change matches.
       const sightings = monitor?.prepare(`SELECT * FROM external_sightings
         WHERE provider IN ('google','exa') AND observed_at<=? AND (?='' OR site=?)
-        ORDER BY provider_published_at DESC`).all(now,site,site) as Row[] | undefined;
+        ORDER BY provider_published_at DESC NULLS LAST,id`).all(now,site,site) as Row[] | undefined;
       const listed: Record<ProviderId,Map<string,'url'|'title'>> = {google:new Map(),exa:new Map()};
       // A provider cell must not inherit the other provider's evidence from a
       // grouped title association. Each uses Coverage's matcher independently.

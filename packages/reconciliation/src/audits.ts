@@ -1,5 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
-import { existsSync } from "node:fs";
+import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { domainFor } from "../../core/src/policy.js";
 import { urlKey } from "./identity.js";
 
@@ -10,7 +9,7 @@ export function importAudits(
   monitorPath: string,
   now = Date.now(),
 ) {
-  if (!existsSync(monitorPath)) return 0;
+  if (!hasTable('audit_candidates')) return 0;
   const monitor = new DatabaseSync(monitorPath, { readOnly: true });
   try {
     monitor.exec("PRAGMA query_only=ON; PRAGMA busy_timeout=1000");

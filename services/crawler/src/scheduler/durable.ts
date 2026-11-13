@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { sites } from '../../../../config/sites.js';
 import { chromeSites } from '../../../../config/profiles.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
@@ -163,13 +163,13 @@ export class Scheduler {
         if (this.one("SELECT 1 FROM attempt_assignments WHERE domain=? AND terminal IS NULL", site.domain)) continue;
         // Avoid scanning large candidate queues before this domain can spend a slot.
         if (slotDue(this.db, site.domain, site.requestsPerMinute, 0, now) > now) continue;
-        const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8)", site.domain)!.n;
+        const baseline = this.one("SELECT count(*) n FROM (SELECT 1 FROM candidates WHERE domain=? AND priority=0 AND state<>'pending' LIMIT 8) settled", site.domain)!.n;
         // Choose the constant range before preparing SQL. The equivalent OR
         // predicate scans priority-zero rows even after the initial sample ends.
         const candidatePriority=baseline<8?'c.priority>=0':'c.priority>0';
         const articleTurns=Number(this.one('SELECT value FROM meta WHERE key=?','article-turns:'+site.domain)?.value||0);
         const catchup=articleTurns%5===4;
-        const order="CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC,c.discovered DESC,c.rowid ASC";
+        const order="CASE WHEN c.published_hint>=? THEN 2 WHEN c.published_hint IS NULL AND c.discovered>=? THEN 1 ELSE 0 END DESC,c.priority DESC,c.published_hint DESC NULLS LAST,c.discovered DESC,c.rowid ASC";
         const pick=(extra:string,orderBy:string,params:(string|number)[])=>this.one(`SELECT t.* FROM candidates c INDEXED BY candidate_queue CROSS JOIN crawl_tasks t ON t.url=c.url
           WHERE c.domain=? AND t.purpose='article' AND t.state='ready' AND t.next_crawl_at<=? AND c.state='pending'
           AND ${candidatePriority}${extra}
@@ -193,7 +193,7 @@ export class Scheduler {
         if(candidate && this.reuseArticle(candidate,now))continue;
         const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')`,site.domain,now,now)
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY t.next_crawl_at,t.id`,site.domain,now,now)
           .sort((a,b)=>this.sourceScore(b)-this.sourceScore(a)||a.next_poll-b.next_poll)[0];
         const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
         let task = source && (turns>=2 || !candidate) ? source : candidate;
@@ -288,7 +288,7 @@ export class Scheduler {
     const target=this.aliases.resolve(task.current_url,now);
     if(!target)return false;
     const article=this.one(`SELECT canonical_url FROM articles WHERE canonical_url=? AND classification<>'incomplete'
-      AND json_extract(payload,'$.isArticle')=1 AND length(json_extract(payload,'$.text'))>=200`,target);
+      AND json_extract(payload,'$.isArticle')='true' AND length(json_extract(payload,'$.text'))>=200`,target);
     if(article) {
       this.run("UPDATE candidates SET state='done',last_error=NULL WHERE url=?",task.url);
       this.run("UPDATE crawl_tasks SET state='processed' WHERE id=?",task.id);
@@ -336,9 +336,9 @@ export class Scheduler {
       this.run("UPDATE crawl_tasks SET state='processed',next_crawl_at=?,current_url=url,hops=0 WHERE id=?",due,task.id);
       const parent=this.one('SELECT * FROM crawl_tasks WHERE id=?',task.parent_id);
       if(parent) {
-        this.run('UPDATE crawl_tasks SET next_crawl_at=max(next_crawl_at,?) WHERE id=?',due,parent.id);
-        if(parent.purpose==='discovery') this.run('UPDATE sources SET next_poll=max(next_poll,?),errors=errors+1,last_error=? WHERE url=?',due,error,parent.url);
-        if(parent.purpose==='article') this.run('UPDATE candidates SET next_attempt=max(next_attempt,?),last_error=? WHERE url=?',due,error,parent.url);
+        this.run('UPDATE crawl_tasks SET next_crawl_at=greatest(next_crawl_at,?) WHERE id=?',due,parent.id);
+        if(parent.purpose==='discovery') this.run('UPDATE sources SET next_poll=greatest(next_poll,?),errors=errors+1,last_error=? WHERE url=?',due,error,parent.url);
+        if(parent.purpose==='article') this.run('UPDATE candidates SET next_attempt=greatest(next_attempt,?),last_error=? WHERE url=?',due,error,parent.url);
       }
       return;
     }

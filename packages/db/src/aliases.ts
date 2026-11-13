@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../pg/src/sync.js';
 import { domainFor } from '../../core/src/policy.js';
 
 export class ArticleAliases {
@@ -36,7 +36,7 @@ export class ArticleAliases {
         }catch {}
       }
       const articles=this.db.prepare(`SELECT canonical_url,json_extract(payload,'$.sourceUrl') source
-        FROM articles WHERE classification<>'incomplete' AND json_extract(payload,'$.isArticle')=1`).all();
+        FROM articles WHERE classification<>'incomplete' AND json_extract(payload,'$.isArticle')='true'`).all();
       for(const a of articles) {
         const response=direct.get(String(a.source));
         if(response)count+=this.remember(String(a.source),String(a.canonical_url),'canonical',Number(response.id),Number(response.finished));

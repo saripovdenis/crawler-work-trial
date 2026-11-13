@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "../../pg/src/sync.js";
 import { date, urlKey } from "./identity.js";
 
 type Row = Record<string, any>;

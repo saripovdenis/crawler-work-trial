@@ -1,4 +1,6 @@
 [Unit]
+After=postgresql.service
+Wants=postgresql.service
 Description=Exa durable scheduler and pipeline
 After=network-online.target
 Wants=network-online.target
@@ -8,6 +10,8 @@ StartLimitIntervalSec=300
 StartLimitBurst=10
 
 [Service]
+Environment=PGHOST=/var/run/postgresql
+Environment=PGDATABASE=crawler
 Type=simple
 User=exa-crawler
 Group=exa-crawler
@@ -20,7 +24,7 @@ Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
 KillSignal=SIGTERM
-MemoryMax=1000M
+MemoryMax=2G
 OOMPolicy=stop
 NoNewPrivileges=true
 PrivateTmp=true

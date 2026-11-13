@@ -1,10 +1,14 @@
 [Unit]
+After=postgresql.service
+Wants=postgresql.service
 Description=Exa crawler observability API and dashboard
 After=network-online.target
 Wants=network-online.target
 RequiresMountsFor=/var/lib/exa-crawler
 
 [Service]
+Environment=PGHOST=/var/run/postgresql
+Environment=PGDATABASE=crawler
 Type=simple
 User=exa-crawler
 Group=exa-crawler
@@ -17,8 +21,8 @@ ExecStart=/usr/local/bin/node --import tsx apps/dashboard/src/api/index.ts
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
-MemoryMax=384M
-CPUQuota=60%
+MemoryMax=2G
+CPUQuota=200%
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

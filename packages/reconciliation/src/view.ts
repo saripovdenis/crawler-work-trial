@@ -1,6 +1,5 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, hasTable } from "../../pg/src/sync.js";
 import { LruCache } from "../../core/src/lru.js";
-import { existsSync } from "node:fs";
 import { sites } from "../../../config/sites.js";
 import { providerIds, pollInterval } from "../../../config/monitor.js";
 import { urlKey, matchingTitle, date } from "./identity.js";
@@ -226,7 +225,7 @@ export class CoverageReader {
       page: 1,
       pageSize: 50,
     };
-    if (!existsSync(this.monitorPath))
+    if (!hasTable('external_sightings'))
       return {
         ...base,
         ready: false,
@@ -249,7 +248,7 @@ export class CoverageReader {
         .prepare(
           `SELECT s.*,r.started_at first_poll_started_at,r.finished_at first_poll_finished_at
           FROM external_sightings s LEFT JOIN provider_runs r ON r.id=s.run_id
-          WHERE s.provider IN ('google','exa') AND s.provider_published_at>=? AND s.provider_published_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.provider_published_at DESC LIMIT 50001`,
+          WHERE s.provider IN ('google','exa') AND s.provider_published_at>=? AND s.provider_published_at<? AND (?='' OR s.site=?) AND (?='' OR s.provider=?) ORDER BY s.provider_published_at DESC,s.id LIMIT 50001`,
         )
         .all(includeFreshness ? Number.MIN_SAFE_INTEGER : start, now, site, site, provider, provider) as Row[];
       const unknownPublication = Number(monitor.prepare(`SELECT count(*) n FROM external_sightings
@@ -339,7 +338,7 @@ export class CoverageReader {
         }));
       const providers = monitor
         .prepare(
-          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p WHERE p.provider IN ('google','exa')`,
+          `SELECT p.*,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider AND started_at>=?) used_today,(SELECT sum(quota_used) FROM provider_runs r WHERE r.provider=p.provider) used_total,(SELECT min(next_poll) FROM provider_schedule s WHERE s.provider=p.provider) next_poll,(SELECT max(finished_at) FROM provider_runs r WHERE r.provider=p.provider AND status='ok') last_success,(SELECT status FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_status,(SELECT error FROM provider_runs r WHERE r.provider=p.provider ORDER BY id DESC LIMIT 1) last_error FROM provider_state p WHERE p.provider IN ('google','exa') ORDER BY p.provider`,
         )
         .all(now - 86400000) as Row[];
       for (const p of providers) {

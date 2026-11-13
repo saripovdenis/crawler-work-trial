@@ -26,8 +26,8 @@ running also prevent a cutover. Do not bypass these guards.
 
 Preparation runs dependency installation, type checks, the static outbound/import
 boundary check, frontend build, and a Python transport import. It does not run
-automated tests or send validation requests to publishers. Both SQLite databases
-are backed up in the release directory. Existing service users, settings, ports,
+automated tests or send validation requests to publishers. The PostgreSQL
+`crawl_budget` schema is dumped into the release directory. Existing service users, settings, ports,
 secrets, disk paths and public URLs are preserved.
 
 The worker stops first; then the other three services stop. Their units switch
@@ -60,3 +60,22 @@ to the canonical command.
 These are operational safeguards, not an access-control boundary against a root
 administrator. Do not run historical archive scripts or edit live unit paths by
 hand. Any future CI must call this same command and deploy only `master`.
+
+## PostgreSQL
+
+All rows live in PostgreSQL: database `crawler`, schema `crawl_budget`, owned by
+the `exa-crawler` role, reached over the local socket with peer authentication.
+The scheduler, dashboard and reconciler get `PGHOST` and `PGDATABASE` from their
+units. Archives, receipts and status files stay under `/var/lib/exa-crawler`.
+
+The deploy command installs PostgreSQL if it is missing and creates the role and
+database. On the first PostgreSQL release it stops all four services, copies both
+SQLite files read-only into `/var/lib/exa-crawler/sqlite-archive/<UTC>/`, loads
+PostgreSQL from that copy with `deploy/migrate-sqlite-to-postgres.py`, and records
+`/var/lib/exa-crawler/deployments/postgres-cutover.json` once health checks pass.
+The original SQLite files are left in place and are never written again. If that
+first cutover fails, the previous units are restored and the partial schema is
+dropped, so SQLite remains the live store.
+
+Returning to a SQLite release after a successful cutover loses every row written
+since: the SQLite files are frozen at the cutover.

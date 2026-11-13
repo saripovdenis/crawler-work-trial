@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { resolve } from 'node:path';
 import { sites } from '../../../../config/sites.js';
 

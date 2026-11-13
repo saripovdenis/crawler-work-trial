@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { nextAllowed } from '../../../../packages/core/src/policy.js';
 
 // Five seconds to dispatch + 25s transport cap + five seconds of margin.

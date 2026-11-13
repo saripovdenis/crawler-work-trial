@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../pg/src/sync.js';
 
 type Row = Record<string, any>;
 export function dispatchSummary(db: DatabaseSync, now: number, site = '') {

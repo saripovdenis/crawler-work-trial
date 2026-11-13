@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from '../../../../packages/pg/src/sync.js';
 import { load } from 'cheerio';
 import { publisherPublication, parseArticle, publisherStoryFromHtml } from '../../../../packages/core/src/parse.js';
 import { classify, domainFor } from '../../../../packages/core/src/policy.js';
@@ -30,7 +30,6 @@ export function repairPublication(options: RepairOptions) {
     throw new Error('Window must be positive and no longer than seven days');
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Limit must be 1..1000');
   if (options.apply && !options.auditPath) throw new Error('--apply requires a new --audit file');
-  if (!existsSync(options.database)) throw new Error('Database does not exist');
   const db = new DatabaseSync(resolve(options.database), { readOnly: !options.apply });
   let audit: number | undefined;
   const result = { apply: !!options.apply, windowStart: now - windowMs, windowEnd: now, limit, truncated: false, nextCursor: null as string | null, eligible: 0, proposed: 0, updated: 0, skipped: {} as Record<string, number> };

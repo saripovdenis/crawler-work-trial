@@ -82,7 +82,7 @@ Collection pauses when the Mac sleeps or loses its network connection.
 
 ## Saved locally
 
-- `data/crawler.sqlite`: authoritative request ledger, sources, URL queue, article records, robots cache.
+- PostgreSQL schema `crawl_budget`: authoritative request ledger, sources, URL queue, article records, robots cache. See `docs/POSTGRES.md`.
 - `data/articles.jsonl`: parsed records, including old, incomplete, and undated pages.
 - `data/new-articles.jsonl`: records classified as new using publication evidence.
 - `data/status.json`: a summary refreshed every 30 seconds.
@@ -213,7 +213,7 @@ and does not claim they were all newly discovered in that poll. API responses om
 raw headers and full article bodies. Filters never make upstream requests.
 
 `deploy/` contains the unchanged HTTPS proxy configuration and updated systemd entry paths.
-The database remains `/var/lib/exa-crawler/data/crawler.sqlite`; the public URL and port stay unchanged.
+Rows live in the PostgreSQL `crawl_budget` schema (see `docs/POSTGRES.md`); the public URL and port stay unchanged.
 
 Useful API endpoints: `/api/overview`, `/api/requests?domain=bbc.com`,
 `/api/requests/123`, `/api/articles?fresh=true&q=news`, `/api/sources`.

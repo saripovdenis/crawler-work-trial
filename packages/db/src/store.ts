@@ -1,38 +1,13 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from '../../pg/src/sync.js';
 import { mkdirSync } from 'node:fs';
+import { ensureSchema } from '../../pg/src/schema.js';
 import { resolve } from 'node:path';
 
 export const dataDir = resolve(process.env.CRAWLER_DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true });
-export const db = new DatabaseSync(resolve(dataDir, 'crawler.sqlite'));
-db.exec(`
-  PRAGMA journal_mode=WAL;
-  PRAGMA busy_timeout=5000;
-  CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS sites (domain TEXT PRIMARY KEY, started INTEGER NOT NULL, cooldown INTEGER NOT NULL DEFAULT 0);
-  CREATE TABLE IF NOT EXISTS requests (
-    id INTEGER PRIMARY KEY, domain TEXT NOT NULL, url TEXT NOT NULL, purpose TEXT NOT NULL,
-    started INTEGER NOT NULL, finished INTEGER, status INTEGER, error TEXT, body_hash TEXT, headers TEXT
-  );
-  CREATE INDEX IF NOT EXISTS requests_time ON requests(domain, started);
-  CREATE TABLE IF NOT EXISTS robots (origin TEXT PRIMARY KEY, body TEXT NOT NULL, expires INTEGER NOT NULL);
-  CREATE TABLE IF NOT EXISTS sources (
-    url TEXT PRIMARY KEY, domain TEXT NOT NULL, kind TEXT NOT NULL, depth INTEGER DEFAULT 0,
-    next_poll INTEGER DEFAULT 0, polls INTEGER DEFAULT 0, errors INTEGER DEFAULT 0,
-    discovered INTEGER DEFAULT 0, etag TEXT, modified TEXT, last_error TEXT
-  );
-  CREATE TABLE IF NOT EXISTS candidates (
-    url TEXT PRIMARY KEY, domain TEXT NOT NULL, source TEXT NOT NULL, discovered INTEGER NOT NULL,
-    published_hint TEXT, priority INTEGER NOT NULL, state TEXT DEFAULT 'pending', attempts INTEGER DEFAULT 0,
-    next_attempt INTEGER DEFAULT 0, last_error TEXT
-  );
-  CREATE INDEX IF NOT EXISTS candidate_queue ON candidates(domain,state,priority,discovered);
-  CREATE TABLE IF NOT EXISTS articles (
-    canonical_url TEXT PRIMARY KEY, domain TEXT NOT NULL, discovered INTEGER NOT NULL, fetched INTEGER NOT NULL,
-    published TEXT, classification TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS article_fingerprint ON articles(fingerprint);
-`);
+// The data directory still holds archives, receipts and status files; rows live in PostgreSQL.
+export const db = new DatabaseSync();
+ensureSchema(db);
 export function get<T>(sql: string, ...args: (string | number | null)[]): T | undefined {
   return db.prepare(sql).get(...args) as T | undefined;
 }

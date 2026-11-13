@@ -1,34 +1,10 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from '../../../pg/src/sync.js';
+import { ensureSchema } from '../../../pg/src/schema.js';
 
 export function migrateDurable(db: DatabaseSync) {
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS crawl_tasks (
-        id INTEGER PRIMARY KEY, domain TEXT NOT NULL, url TEXT NOT NULL, purpose TEXT NOT NULL,
-        priority INTEGER NOT NULL DEFAULT 0, next_crawl_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'ready',
-        current_url TEXT NOT NULL, hops INTEGER NOT NULL DEFAULT 0, headers TEXT NOT NULL DEFAULT '{}',
-        parent_id INTEGER, origin TEXT, UNIQUE(url,purpose)
-      );
-      CREATE INDEX IF NOT EXISTS crawl_tasks_due ON crawl_tasks(state,next_crawl_at,priority DESC);
-      CREATE INDEX IF NOT EXISTS crawl_tasks_domain_due ON crawl_tasks(domain,purpose,state,next_crawl_at);
-      CREATE TABLE IF NOT EXISTS attempt_assignments (
-        attempt_id TEXT PRIMARY KEY, request_id INTEGER NOT NULL UNIQUE, task_id INTEGER NOT NULL,
-        domain TEXT NOT NULL, worker_id TEXT NOT NULL, claim_id TEXT NOT NULL UNIQUE, lease_token TEXT NOT NULL,
-        start_by INTEGER NOT NULL, lease_until INTEGER NOT NULL, assignment TEXT NOT NULL,
-        terminal TEXT, completion TEXT, processing TEXT NOT NULL DEFAULT 'waiting',
-        process_after INTEGER NOT NULL DEFAULT 0, process_errors INTEGER NOT NULL DEFAULT 0, process_error TEXT
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS active_domain_assignment ON attempt_assignments(domain) WHERE terminal IS NULL;
-      CREATE INDEX IF NOT EXISTS attempts_processing ON attempt_assignments(processing,process_after);
-      CREATE TABLE IF NOT EXISTS scheduler_domains(domain TEXT PRIMARY KEY, articles_since_poll INTEGER NOT NULL DEFAULT 2);
-      CREATE TABLE IF NOT EXISTS article_aliases (
-        alias_url TEXT PRIMARY KEY, target_url TEXT NOT NULL, domain TEXT NOT NULL,
-        kind TEXT NOT NULL, request_id INTEGER NOT NULL, observed INTEGER NOT NULL, expires INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS article_alias_target ON article_aliases(target_url);
-      CREATE INDEX IF NOT EXISTS requests_url ON requests(url,id);
-    `);
+    ensureSchema(db);
     syncTasks(db);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
