@@ -243,13 +243,17 @@ are absent from the stored provider samples? It reads the existing databases;
 viewing or refreshing it makes no provider requests and spends no Exa quota.
 
 The page shows one percentage and a domain breakdown against Google News.
-The percentage is `crawlerOnly / compared * 100`, where `compared` includes
-articles at least 70 minutes old that are either confirmed listed or absent
+The percentage is `crawlerOnly / compared * 100`. For 24-hour and seven-day
+windows, `compared` includes articles at least 70 minutes old that are either confirmed listed or absent
 from a successful covering sample. Pending, uncertain and non-comparable
 records are excluded; an empty denominator returns `null`, displayed as “—”.
 Both capped and uncapped samples count, so this is sampled absence, not proof
-of exclusivity. The page offers 24 hours and 7 days: a one-hour publication
-window contains no articles past the 70-minute grace period.
+of exclusivity. The page also offers “Last hour · provisional”: the literal latest 60 minutes
+by publication time, without the 70-minute grace. A confirmed match or a
+successful covering poll is still required; uncertain matches stay excluded.
+This is absence from available samples so far, and may change as Google indexes
+articles. The API exposes `provisional: true` and `gracePeriodMinutes: 0` for
+`window=1h`. The 24-hour and seven-day windows retain the 70-minute grace.
 
 `GET /api/crawler-only?window=24h&site=&provider=google&show=all&page=1`
 accepts publication windows `1h`, `24h` (default) and `7d`; a configured site;

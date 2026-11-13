@@ -5,13 +5,13 @@ import "./crawler-only.css";
 
 type StatusCounts = { total: number; compared: number; crawlerOnly: number; percentage: number | null };
 type CrawlerOnlySnapshot = {
-  generatedAt: number; gracePeriodMinutes: number; summary: StatusCounts;
+  generatedAt: number; gracePeriodMinutes: number; provisional: boolean; summary: StatusCounts;
   domains: (StatusCounts & { site: string })[];
 };
 
 // Keep provider selection in the API; this page currently compares Google only.
 const comparator = { id: "google", label: "Google News" } as const;
-const windows = ["24h", "7d"];
+const windows = ["1h", "24h", "7d"];
 const number = (value: number) => value.toLocaleString("en-US");
 const percent = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(1)}%`;
 const ratio = (value: StatusCounts) => `${number(value.crawlerOnly)} / ${number(value.compared)}`;
@@ -77,7 +77,7 @@ export default function CrawlerOnlyPage() {
       <header className="crawler-heading">
         <div><h1>Crawler-only</h1><p>Our articles absent from {comparator.label} samples.</p></div>
         <select aria-label="Publication window" value={window} onChange={event => setWindow(event.target.value)}>
-          <option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option>
+          <option value="1h">Last hour · provisional</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option>
         </select>
       </header>
       <section className="crawler-total" aria-label="Overall crawler-only percentage" aria-busy={loading}>
@@ -100,7 +100,7 @@ export default function CrawlerOnlyPage() {
           </tr>)}</tbody>
         </table>
         <footer className="crawler-footnote">
-          <p>Articles ≥{current.gracePeriodMinutes} min old. Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from Google.</p>
+          <p>{current.provisional ? "Live comparison: Google may list these articles later." : `Articles ≥${current.gracePeriodMinutes} min old.`} Uncertain matches and missing comparison evidence are excluded. Absence from a sample does not prove absence from Google.</p>
           <p>Updated {new Date(current.generatedAt).toISOString().slice(11, 19)} UTC{loading ? " · refreshing" : ""}</p>
         </footer>
       </>}

@@ -37,7 +37,7 @@ export type CrawlerOnlySnapshot = {
   domains: (StatusCounts & { site: string; polls: Record<ProviderId, PollCounts> })[];
   articles: CrawlerOnlyArticle[]; rowsLimit: number; rowsTruncated: boolean; totalRows: number;
   population: { undatedExcluded: number; unparsedExcluded: number }; ready: boolean;
-  gracePeriodMinutes: number; cadenceMinutes: number;
+  gracePeriodMinutes: number; cadenceMinutes: number; provisional: boolean;
 };
 
 export function crawlerOnlyQuery(params: URLSearchParams) {
@@ -54,13 +54,13 @@ export function crawlerOnlyQuery(params: URLSearchParams) {
 
 const emptyCounts = (): StatusCounts => ({ total: 0, comparable: 0, listed: 0, googleOnly: 0, exaOnly: 0,
   both: 0, compared: 0, percentage: null, possible: 0, strong: 0, weak: 0, pending: 0, notComparable: 0, crawlerOnly: 0 });
-function countArticle(counts: StatusCounts, article: CrawlerOnlyArticle, selected: readonly ProviderId[], now: number) {
+function countArticle(counts: StatusCounts, article: CrawlerOnlyArticle, selected: readonly ProviderId[], now: number, minimumAge: number) {
   counts.total++;
   if (article.status === 'not_comparable') { counts.notComparable++; return; }
   counts.comparable++;
   counts[article.status]++;
   if (article.status === 'strong' || article.status === 'weak') counts.crawlerOnly++;
-  if (now - article.publishedAt >= gracePeriod && ['listed','strong','weak'].includes(article.status)) {
+  if (now - article.publishedAt >= minimumAge && ['listed','strong','weak'].includes(article.status)) {
     counts.compared++;
     counts.percentage = counts.crawlerOnly / counts.compared * 100;
   }
@@ -102,6 +102,8 @@ function overall(evidence: ProviderEvidence[], hasFetch: boolean): CrawlerOnlySt
 export class CrawlerOnlyReader {
   constructor(readonly monitorPath: string, readonly crawlerPath: string) {}
   dataset(window: CrawlerOnlyWindow, site: string, provider: CrawlerOnlyProvider, now: number): CrawlerOnlySnapshot {
+    // The live hour measures sample absence so far; longer windows retain the grace period.
+    const minimumAge = window === '1h' ? 0 : gracePeriod;
     const start = now - windows[window], selected: readonly ProviderId[] = provider === 'both' ? providerIds : [provider];
     const crawler = new DatabaseSync(this.crawlerPath,{readOnly:true});
     const monitor = hasTable('external_sightings') ? new DatabaseSync(this.monitorPath,{readOnly:true}) : undefined;
@@ -154,7 +156,7 @@ export class CrawlerOnlyReader {
         const identity = key(download.domain,download.canonical_url);
         const match = identity ? listed[id].get(identity) || null : null;
         if (match) return {status:'listed',reason:`Matched a stored ${providerNames[id]} sample by ${match}.`,match,poll};
-        if (now - publication < gracePeriod) return {status:'pending',reason:`Published less than ${gracePeriod/60000} minutes ago; a later poll may still list it.`,match:null,poll};
+        if (now - publication < minimumAge) return {status:'pending',reason:`Published less than ${gracePeriod/60000} minutes ago; a later poll may still list it.`,match:null,poll};
         if (matchingTitle(article.title || '',article.domain) && titles[id].has(titleIndexKey(article.domain,article.title || '')))
           return {status:'possible',reason:`A stored ${providerNames[id]} row has the same normalized title, but the Coverage matcher did not confirm it.`,match:null,poll};
         if (!poll) return {status:'not_comparable',reason:`No successful ${id === 'google' ? 'Google' : 'Exa'} poll covered this publication time.`,match:null,poll};
@@ -192,13 +194,13 @@ export class CrawlerOnlyReader {
           requestId:download?.request_id ?? null,status:overall(selected.map(id => id === 'google' ? google : exa),!!download),
           incomplete:article.classification === 'incomplete',google,exa};
         if(rows.length<rowLimit)rows.push(row);
-        countArticle(summary,row,selected,now);
-        const domain = byDomain.get(row.site);if (domain) countArticle(domain,row,selected,now);
+        countArticle(summary,row,selected,now,minimumAge);
+        const domain = byDomain.get(row.site);if (domain) countArticle(domain,row,selected,now,minimumAge);
       }
       return {window,windowStart:start,windowEnd:now,windowTimestamp:'article_published_at',generatedAt:now,
         sites:sites.map(value => value.domain),provider,selectedProviders:selected,summary,domains,
         articles:rows,rowsLimit:rowLimit,rowsTruncated:summary.total>rowLimit,totalRows:summary.total,
-        population,ready:!!monitor,gracePeriodMinutes:gracePeriod/60000,cadenceMinutes:pollInterval/60000};
+        population,ready:!!monitor,gracePeriodMinutes:minimumAge/60000,cadenceMinutes:pollInterval/60000,provisional:window==='1h'};
     } finally {monitor?.close();crawler.close();}
   }
 }
