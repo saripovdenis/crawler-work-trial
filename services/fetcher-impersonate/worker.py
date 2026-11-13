@@ -124,6 +124,8 @@ def run_slot(slot, directory, worker_id, client, store, config, mirror, concurre
             receipt = json.loads(path.read_text()) if path.exists() else {"claim_id": str(uuid.uuid4())}
             save_receipt(path, receipt, "before_claim")
             if not receipt.get("task"):
+                if stop.is_set():
+                    return
                 start, claim = time.monotonic(), None
                 try:
                     claim = client.request("POST", "/internal/claims", {"worker_id": worker_id, "claim_id": receipt["claim_id"]})
@@ -139,9 +141,10 @@ def run_slot(slot, directory, worker_id, client, store, config, mirror, concurre
                 receipt["task"] = claim["task"]
                 save_receipt(path, receipt, "assigned")
             task = receipt["task"]
-            # Stop before dispatch, retaining the assigned receipt for the next worker.
-            if stop.is_set():
-                return
+            # Drain accepted claims even when SIGTERM arrived during the claim.
+            # Saving an unsent assignment for restart lets its start_by expire.
+            # The loop condition prevents another claim after this completion;
+            # execute still enforces the original dispatch deadline and budget.
             if not receipt.get("completion"):
                 if receipt.get("dispatched"):
                     # A killed worker may have sent it. Never repeat that HTTP request.

@@ -22,7 +22,9 @@ CRAWLER_PYTHON="$PWD/.venv/bin/python" npm run worker
 `CRAWLER_DATA_DIR` defaults to `data`, `SCHEDULER_URL` to loopback
 `http://127.0.0.1:4319`, and `FETCH_CONCURRENCY` to 4 (1–20). `CRAWLER_PYTHON`
 selects the interpreter for the npm command. Systemd starts the release virtualenv
-Python directly. SIGTERM stops new claims and drains bounded in-flight work.
+Python directly. SIGTERM stops new claims and drains bounded in-flight work,
+including assignments accepted while a claim request was in flight. Those
+assignments retain their original dispatch deadline and budget reservation.
 `--check` imports the worker without network requests or runtime-file writes.
 
 ## Configuration and HTTP contract
