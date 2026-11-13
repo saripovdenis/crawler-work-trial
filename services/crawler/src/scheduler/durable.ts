@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { policy, configuredSourceIndex, configuredSource, defaultScheduling, fetchProfileFor } from '../../../../config/site-policy.js';
+import { policy, configuredSource, defaultScheduling, fetchProfileFor } from '../../../../config/site-policy.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
@@ -95,12 +95,6 @@ export class Scheduler {
     return [...this.sourceQuality.entries()].filter(([,q])=>(!domain || q.domain===domain)
       && q.polls>=FRESH_SOURCE_MIN_POLLS && q.dated>=FRESH_SOURCE_MIN_DATED && q.fresh>=q.dated*FRESH_SOURCE_MIN_SHARE)
       .map(([url,q])=>({url,domain:q.domain,pollsLastHour:q.polls,dated:q.dated,fresh:q.fresh}));
-  }
-  sourceScore(source: Row) {
-    const index=configuredSourceIndex(source.url);
-    if(index>=0 && source.polls===0 && source.errors===0) return 1000-index;
-    const q=this.sourceQuality.get(source.url);
-    return sourcePriority(source.url,source.kind)+(q?Math.min(40,20*q.newArticles/Math.max(1,q.polls)):0);
   }
   sourceInterval(source: Row, base: number) {
     base = configuredSource(source.url)?.pollEveryMs ?? base;
@@ -204,11 +198,15 @@ export class Scheduler {
           continue;
         }
         if(candidate && this.reuseArticle(candidate,now))continue;
-        const source = this.all(`SELECT t.*,s.kind,s.polls,s.errors,s.next_poll FROM crawl_tasks t JOIN sources s ON s.url=t.url
+        const sourceCursorKey='discovery-cursor:'+site.domain;
+        const savedCursor=Number(this.one('SELECT value FROM meta WHERE key=?',sourceCursorKey)?.value||0);
+        const sourceCursor=Number.isSafeInteger(savedCursor) && savedCursor>=0 ? savedCursor : 0;
+        // Rotate in stable task order, skipping sources that cannot run yet.
+        // A removed cursor still wraps correctly; new sources join the same ring.
+        const source = this.one(`SELECT t.* FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY t.next_crawl_at,t.id`,site.domain,now,now)
-          // Oldest due first prevents a productive source from starving other feeds.
-          .sort((a,b)=>a.next_crawl_at-b.next_crawl_at||this.sourceScore(b)-this.sourceScore(a)||a.id-b.id)[0];
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')
+          ORDER BY CASE WHEN t.id>? THEN 0 ELSE 1 END,t.id LIMIT 1`,site.domain,now,now,sourceCursor);
         const weights=site.scheduling ?? defaultScheduling;
         const turnKey='discovery-turn:'+site.domain;
         const savedTurn=Number(this.one('SELECT value FROM meta WHERE key=?',turnKey)?.value||0);
@@ -265,6 +263,10 @@ export class Scheduler {
           ? this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose : task.purpose;
         if(allocationKind==='article' || allocationKind==='discovery')
           this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',turnKey,String(nextTurn(turn,allocationKind,weights)));
+        // Only a reserved discovery request advances the source rotation.
+        // Robots prerequisites, skipped sources and replayed claims leave it intact.
+        if(task.purpose==='discovery')
+          this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',sourceCursorKey,String(task.id));
         if(task.purpose==='article') this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','article-turns:'+site.domain,String(articleTurns+1));
         this.run("UPDATE crawl_tasks SET state='leased' WHERE id=?",task.id);
         return {task:value};
