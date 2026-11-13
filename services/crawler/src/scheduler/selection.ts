@@ -1,9 +1,12 @@
 import type { DiscoveryScheduling } from '../../../../packages/core/src/types.js';
 
-// One persistent turn per charged request, including retries and redirects.
-// If a queue is empty its turn is borrowed without accumulating unlimited debt.
-export function nextTurn(turn: number, kind: 'article' | 'discovery', weights: DiscoveryScheduling): number {
+// Persistent weighted credit per charged request, including retries and redirects.
+// Articles earn discoveryWeight; discoveries spend articleWeight (normally 3:1).
+// An early discovery borrows article slots; negative credit repays that debt.
+// Clamp idle borrowing so an empty queue cannot accumulate unlimited credit/debt.
+export function nextTurn(turn: number, kind: 'article' | 'discovery', weights: DiscoveryScheduling, articleWaiting: boolean): number {
   const { articleWeight, discoveryWeight } = weights;
-  if (kind === 'article') return Math.min(turn + 1, articleWeight);
-  return turn >= articleWeight ? (turn + 1) % (articleWeight + discoveryWeight) : 0;
+  if (kind === 'article') return Math.min(turn + discoveryWeight, articleWeight + discoveryWeight - 1);
+  // Idle discovery borrows freely; only queued articles can be owed a turn.
+  return Math.max(turn - articleWeight, articleWaiting ? -articleWeight : 0);
 }

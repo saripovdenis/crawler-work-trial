@@ -97,13 +97,12 @@ export class Scheduler {
       .map(([url,q])=>({url,domain:q.domain,pollsLastHour:q.polls,dated:q.dated,fresh:q.fresh}));
   }
   sourceInterval(source: Row, base: number) {
-    base = configuredSource(source.url)?.pollEveryMs ?? base;
+    const seed = configuredSource(source.url);
+    if(seed) return seed.pollEveryMs ?? base;
     if(sourcePriority(source.url,source.kind)<0) return Math.max(base,6*3600_000);
     const q=this.sourceQuality.get(source.url);
-    const alternative=[...this.sourceQuality.entries()].some(([url,other])=>url!==source.url && other.domain===source.domain && other.newArticles>0);
-    // Quiet sites retain their normal cadence. Only proven unproductive sources
-    // yield budget to productive alternatives on the same site.
-    return q && q.polls>=3 && q.newArticles===0 && alternative ? Math.max(base,300_000) : base;
+    // Keep productive discovered sources fast; give the rest a 20-minute floor.
+    return q && q.newArticles>0 ? base : Math.max(base,20*60_000);
   }
   private statement(sql: string) {
     let statement=this.statements.get(sql);
@@ -201,17 +200,33 @@ export class Scheduler {
         const sourceCursorKey='discovery-cursor:'+site.domain;
         const savedCursor=Number(this.one('SELECT value FROM meta WHERE key=?',sourceCursorKey)?.value||0);
         const sourceCursor=Number.isSafeInteger(savedCursor) && savedCursor>=0 ? savedCursor : 0;
-        // Rotate in stable task order, skipping sources that cannot run yet.
-        // A removed cursor still wraps correctly; new sources join the same ring.
-        const source = this.one(`SELECT t.* FROM crawl_tasks t JOIN sources s ON s.url=t.url
+        const dueSources = `SELECT t.* FROM crawl_tasks t JOIN sources s ON s.url=t.url
           WHERE t.domain=? AND t.purpose='discovery' AND t.state='ready' AND t.next_crawl_at<=?
-          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')
+          AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%')`;
+        const seeds = site.seeds ?? [];
+        const dueSeeds = seeds.length ? this.all(`${dueSources} AND t.url IN (${seeds.map(()=>'?').join(',')})`,
+          site.domain,now,now,...seeds.map(seed=>seed.url)) : [];
+        // Compare missed intervals, not raw lateness, so short-period seeds win
+        // fairly. Only the small configured set is read and sorted here.
+        const overdue = (task: Row) => {
+          const configured = configuredSource(task.url)!;
+          const interval = configured.pollEveryMs
+            ?? Math.max(30_000,Math.ceil(180_000/site.requestsPerMinute))*(configured.kind==='sitemap'?2:1);
+          return (now-task.next_crawl_at)/interval;
+        };
+        const seed = dueSeeds.sort((a,b)=>overdue(b)-overdue(a) || a.next_crawl_at-b.next_crawl_at || a.id-b.id)[0];
+        // Non-seeds retain their own durable round-robin position.
+        const source = seed ?? this.one(`${dueSources}
           ORDER BY CASE WHEN t.id>? THEN 0 ELSE 1 END,t.id LIMIT 1`,site.domain,now,now,sourceCursor);
         const weights=site.scheduling ?? defaultScheduling;
         const turnKey='discovery-turn:'+site.domain;
         const savedTurn=Number(this.one('SELECT value FROM meta WHERE key=?',turnKey)?.value||0);
-        const turn=Number.isSafeInteger(savedTurn) && savedTurn>=0 ? savedTurn%(weights.articleWeight+weights.discoveryWeight) : 0;
-        let task = source && (turn>=weights.articleWeight || !candidate) ? source : candidate;
+        const turn=Number.isSafeInteger(savedTurn)
+          ? Math.max(-weights.articleWeight,Math.min(savedTurn,weights.articleWeight+weights.discoveryWeight-1)) : 0;
+        // A discovery leaves credit below discoveryWeight, so another early
+        // discovery must wait for at least one article slot and repayment of debt.
+        const preempt = !!seed && turn>=weights.discoveryWeight && turn<weights.articleWeight;
+        let task = source && (turn>=weights.articleWeight || !candidate || preempt) ? source : candidate;
         // Audits only use otherwise idle slots, at most one starting per domain/hour.
         if (!task) task = this.one(`SELECT * FROM crawl_tasks WHERE domain=? AND purpose='audit' AND state='ready' AND next_crawl_at<=?
           AND (hops>0 OR NOT EXISTS(SELECT 1 FROM requests WHERE domain=? AND purpose='audit' AND started>?)) ORDER BY id LIMIT 1`,site.domain,now,site.domain,now-3600_000);
@@ -262,10 +277,10 @@ export class Scheduler {
         const allocationKind=task.purpose==='robots'
           ? this.one('SELECT purpose FROM crawl_tasks WHERE id=?',task.parent_id)?.purpose : task.purpose;
         if(allocationKind==='article' || allocationKind==='discovery')
-          this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',turnKey,String(nextTurn(turn,allocationKind,weights)));
-        // Only a reserved discovery request advances the source rotation.
-        // Robots prerequisites, skipped sources and replayed claims leave it intact.
-        if(task.purpose==='discovery')
+          this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',turnKey,String(nextTurn(turn,allocationKind,weights,!!candidate)));
+        // Seeds, robots prerequisites, skipped sources and replayed claims
+        // leave the non-seed source rotation intact.
+        if(task.purpose==='discovery' && !configuredSource(task.url))
           this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)',sourceCursorKey,String(task.id));
         if(task.purpose==='article') this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','article-turns:'+site.domain,String(articleTurns+1));
         this.run("UPDATE crawl_tasks SET state='leased' WHERE id=?",task.id);
