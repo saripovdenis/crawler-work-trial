@@ -1,7 +1,7 @@
 import type { SitePolicy } from '../packages/core/src/types.js';
 import { siteDefaults } from './sites.js';
 import { articleBodyProfiles, arcContentHosts, publicationProfiles } from './profiles.js';
-import { discoverySeeds, sourceHostPriorities } from './discovery.js';
+import { sourceHostPriorities } from './discovery.js';
 import { editions } from './monitor.js';
 import { listingRoutes, nonArticleHosts, titleSuffixes } from './article-rules.js';
 
@@ -36,6 +36,19 @@ export function createSitePolicyStore(records: readonly SitePolicy[]): SitePolic
     if (typeof enabled !== 'boolean' || !['node', 'chrome136'].includes(transport)
       || !Number.isInteger(requestsPerMinute) || requestsPerMinute < 1 || requestsPerMinute > siteRules.maxRequestsPerMinute)
       throw new Error(`Invalid policy for ${domain}: enabled, transport or request limit`);
+    const sources = new Set<string>();
+    for (const source of record.discoverySources || []) {
+      const url = new URL(source.url);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
+        || (url.port && !['80', '443'].includes(url.port))
+        || !(url.hostname === domain || url.hostname.endsWith(`.${domain}`))
+        || !['sitemap', 'feed', 'html', 'api'].includes(source.kind)
+        || (source.kind === 'api' && source.adapter !== 'sina-roll') || sources.has(source.url))
+        throw new Error(`Invalid or duplicate discovery source for ${domain}: ${source.url}`);
+      if (source.kind === 'api' && (url.hostname !== 'feed.mix.sina.com.cn' || url.pathname !== '/api/roll/get'))
+        throw new Error(`sina-roll requires Sina's rolling API: ${source.url}`);
+      sources.add(source.url);
+    }
     for (const other of byDomain.keys()) {
       if (domain.endsWith(`.${other}`) || other.endsWith(`.${domain}`))
         throw new Error(`Overlapping policy domains: ${domain}, ${other}`);
@@ -61,16 +74,12 @@ export function validateSiteProfiles(store: SitePolicyStore): void {
         throw new Error(`${name}: unknown policy host ${host}`);
     }
   }
-  for (const seed of discoverySeeds) {
-    const url = new URL(seed.url);
-    if (!store.for(seed.domain) || !['http:', 'https:'].includes(url.protocol) || url.username || url.password
-      || (url.port && !['80', '443'].includes(url.port))
-      || !(url.hostname === seed.domain || url.hostname.endsWith(`.${seed.domain}`)))
-      throw new Error(`discoverySeeds: invalid policy domain or URL ${seed.url}`);
-  }
 }
 
 // Validation runs at import, before a service can claim work. Keep the defaults'
 // order: the first eligible active domain wins, exactly as in the original loop.
 export const policy = createSitePolicyStore(siteDefaults);
 validateSiteProfiles(policy);
+const configuredOrder = new Map(policy.all().flatMap(site =>
+  (site.discoverySources || []).map((source, index) => [source.url, index] as const)));
+export const configuredSourceIndex = (url: string): number => configuredOrder.get(url) ?? -1;

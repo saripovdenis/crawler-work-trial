@@ -30,6 +30,48 @@ domains. Seed URLs must belong to their named domain. Regexes and extraction rul
 remain reviewed code. The static boundary check rejects imports of raw defaults
 outside the policy module.
 
+## Discovery sources
+
+`discoverySources` is an optional ordered list on each site. Supported kinds are
+`html`, `feed` (RSS/Atom), `sitemap` (including indexes), and `api` with a named
+adapter. For example:
+
+```ts
+{
+  domain: 'sina.com.cn', enabled: true, requestsPerMinute: 30, transport: 'node',
+  discoverySources: [
+    { kind: 'api', adapter: 'sina-roll', url: 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=50&page=1' },
+    { kind: 'html', url: 'https://finance.sina.com.cn/roll/c/51894.shtml' },
+  ],
+}
+```
+
+The scheduler seeds these URLs into `sources`; sites with no configured sources
+start at `https://www.<domain>/`. Unattempted configured sources take precedence
+in array order, including over an existing article queue. Robots checks, request
+limits, cooldowns and existing leases still apply. Sources already polled or
+failed resume their stored schedule; restarting does not replay a bootstrap.
+After the first attempts, normal source scoring and article/discovery turns apply.
+Old and automatically discovered source rows remain available. Removing a seed
+from config does not delete its stored source or history.
+
+Sina's general and AI rolling feeds use `sina-roll`, which reads `result.data`,
+deduplicates publisher URLs and returns them to the normal article queue. Full
+pages also discover the next page, up to page 3. Those pages use the same budget,
+source count/depth limits and recurring polling policy; there is no HTTP in the
+adapter. `ctime`, `mtime` and `intime` are not treated as publication dates.
+The article parser establishes publication evidence. Invalid API responses fail
+parsing; partially valid lists remain retryable and are not cached as complete.
+
+The adapter is stored as `api:sina-roll` in the existing `sources.kind` column,
+including on discovered pagination URLs. No schema change is needed. Reseeding
+only updates source kinds; it preserves due times, counters, validators and budget
+history. URLs must belong to their configured domain, with no embedded credentials
+or nonstandard ports. API adapters are an explicit code allowlist.
+
+These are discovery seeds, not a completeness oracle. Future source detection can
+populate the same source registry and use the same budgeted fetch path.
+
 ## Pausing
 
 Set a domain's `enabled` to `false`, commit and deploy normally. Policies are

@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from '../../../../packages/pg/src/sync.js';
-import { policy } from '../../../../config/site-policy.js';
+import { policy, configuredSourceIndex } from '../../../../config/site-policy.js';
 import { domainFor, classify, isKnownListingUrl } from '../../../../packages/core/src/policy.js';
 import { discover, parseArticle, type Found } from '../../../../packages/core/src/parse.js';
 import { migrateDurable } from '../../../../packages/db/src/migrations/durable.js';
@@ -96,6 +96,8 @@ export class Scheduler {
       .map(([url,q])=>({url,domain:q.domain,pollsLastHour:q.polls,dated:q.dated,fresh:q.fresh}));
   }
   sourceScore(source: Row) {
+    const index=configuredSourceIndex(source.url);
+    if(index>=0 && source.polls===0 && source.errors===0) return 1000-index;
     const q=this.sourceQuality.get(source.url);
     return sourcePriority(source.url,source.kind)+(q?Math.min(40,20*q.newArticles/Math.max(1,q.polls)):0);
   }
@@ -202,7 +204,8 @@ export class Scheduler {
           AND NOT EXISTS(SELECT 1 FROM crawl_tasks r WHERE r.domain=t.domain AND r.purpose='robots' AND (r.state='downloaded' OR (r.state='processed' AND r.next_crawl_at>?)) AND t.current_url LIKE r.origin||'/%') ORDER BY t.next_crawl_at,t.id`,site.domain,now,now)
           .sort((a,b)=>this.sourceScore(b)-this.sourceScore(a)||a.next_poll-b.next_poll)[0];
         const turns = this.one('SELECT articles_since_poll n FROM scheduler_domains WHERE domain=?',site.domain)!.n;
-        let task = source && (turns>=2 || !candidate) ? source : candidate;
+        const bootstrap=source && source.polls===0 && source.errors===0 && configuredSourceIndex(source.url)>=0;
+        let task = source && (bootstrap || turns>=2 || !candidate) ? source : candidate;
         // Audits only use otherwise idle slots, at most one starting per domain/hour.
         if (!task) task = this.one(`SELECT * FROM crawl_tasks WHERE domain=? AND purpose='audit' AND state='ready' AND next_crawl_at<=?
           AND (hops>0 OR NOT EXISTS(SELECT 1 FROM requests WHERE domain=? AND purpose='audit' AND started>?)) ORDER BY id LIMIT 1`,site.domain,now,site.domain,now-3600_000);
@@ -395,7 +398,7 @@ export class Scheduler {
     let nextPriority=existing.priority;
     // Keep the same hint/priority/discovery rules, but avoid writing rows whose
     // values already match. These mappings run within the caller's transaction.
-    if(item.published || (source.kind==='html' && priority>0)) {
+    if(item.published || ((source.kind==='html' || source.kind.startsWith('api:')) && priority>0)) {
       const hint=existing.published_hint ?? item.published;
       nextPriority=Math.max(existing.priority,priority);
       const discovered=Math.min(existing.discovered,observed);
@@ -641,7 +644,7 @@ export class Scheduler {
       const interval=Math.max(30_000,Math.ceil(180_000/site.requestsPerMinute));
       const due=Math.max(now,observed+this.sourceInterval(source,interval*(source.kind==='sitemap'?2:1)));
       // Do not cache a partial response: next poll must request the complete body.
-      this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial RSS: only complete items processed':null,due,count,partial?null:(value.headers.etag??source.etag),partial?null:(value.headers['last-modified']??source.modified),task.url);
+      this.run('UPDATE sources SET polls=polls+1,errors=?,last_error=?,next_poll=?,discovered=discovered+?,etag=?,modified=? WHERE url=?',partial?source.errors+1:0,partial?'Partial discovery response: only valid items processed':null,due,count,partial?null:(value.headers.etag??source.etag),partial?null:(value.headers['last-modified']??source.modified),task.url);
       this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','source-final:'+task.url,task.current_url);
       if(!partial && parsed?.mappingKey)
         this.run('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)','mapping:'+task.url,parsed.mappingKey);
